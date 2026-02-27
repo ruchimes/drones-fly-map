@@ -1,7 +1,9 @@
 
 import React, { useState } from 'react';
+
 import MapView from './components/MapView';
 import SearchBar from './components/SearchBar';
+import SummaryMessage from './components/SummaryMessage';
 
 
 function App() {
@@ -60,24 +62,13 @@ function App() {
           </div>
         </div>
       )}
-      <div style={{position:'absolute',top:60,left:10,zIndex:1200,minWidth:320,maxWidth:400,background:'#fff',borderRadius:8,boxShadow:'0 2px 8px #0002',padding:16,display: canFly!==null ? 'block':'none'}}>
-        {canFly!==null && (
-          <div>
-            <b>¿Se puede volar?</b><br/>
-            <span style={{color: canFly ? 'green' : 'red', fontWeight:'bold'}}>
-              {canFly ? 'SÍ' : 'NO'}
-            </span>
-            {canFly && maxAllowedHeight && (
-              <div style={{marginTop:8, color:'#1976d2', fontWeight:'bold'}}>
-                Altura máxima permitida: {maxAllowedHeight} m
-              </div>
-            )}
-            <ul style={{marginTop:8}}>
-              {reasons.map((r,i) => <li key={i}>{r}</li>)}
-            </ul>
-          </div>
-        )}
-      </div>
+      {/* Mensaje de resumen con botón de cierre */}
+      <SummaryMessage
+        canFly={canFly}
+        maxAllowedHeight={maxAllowedHeight}
+        reasons={reasons}
+        onClose={() => { setCanFly(null); setReasons([]); setMaxAllowedHeight(null); }}
+      />
       <MapView location={location} zones={zones} radius={radius} onMapClick={handleMapClick} />
     </div>
   );

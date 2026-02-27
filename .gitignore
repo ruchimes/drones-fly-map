@@ -21,3 +21,5 @@ build/
 
 # Misc
 *.tgz
+
+./frontend/zones_debug_2.json
