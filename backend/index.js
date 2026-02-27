@@ -57,15 +57,38 @@ app.get('/api/zones', async (req, res) => {
       axios.get(`${arcgisBase}/${layer.id}/query`, { params })
         .then(resp => {
           console.log(`[ENAIRE] Layer ${layer.name} (${layer.id}) features:`, Array.isArray(resp.data.features) ? resp.data.features.length : 'no features');
-          return { layer: layer.name, features: resp.data.features || [] };
+          return { layer: layer.name, features: resp.data.features || [], raw: resp.data };
         })
         .catch((e) => {
           console.warn(`[ENAIRE] Error en capa ${layer.name} (${layer.id}):`, e.message);
-          return { layer: layer.name, features: [] };
+          return { layer: layer.name, features: [], raw: null };
         })
     );
     const results = await Promise.all(requests);
     console.log('Resultados ENAIRE:', results.map(r => ({ layer: r.layer, features: r.features.length })));
+
+    // Guardar log de consulta antes de filtrar
+    const fs = await import('fs');
+    const logPath = './backend/enaire_zones_log.json';
+    let logArr = [];
+    try {
+      const logRaw = fs.existsSync(logPath) ? fs.readFileSync(logPath, 'utf8') : '[]';
+      logArr = JSON.parse(logRaw);
+    } catch (e) {
+      logArr = [];
+    }
+    logArr.push({
+      timestamp: new Date().toISOString(),
+      lat,
+      lon,
+      radius,
+      layers: results.map(r => ({ layer: r.layer, raw: r.raw }))
+    });
+    try {
+      fs.writeFileSync(logPath, JSON.stringify(logArr, null, 2));
+    } catch (e) {
+      console.warn('No se pudo guardar el log de zonas ENAIRE:', e.message);
+    }
     // Texto a filtrar completamente (ni zona ni restricción)
     const filterOutPhrases = [
       'zona geográfica de UAS general por razón de la seguridad operacional del espacio aéreo controlado',

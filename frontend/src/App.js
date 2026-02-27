@@ -2,8 +2,10 @@
 import React, { useState } from 'react';
 
 import MapView from './components/MapView';
+import './leaflet-fix.css';
 import SearchBar from './components/SearchBar';
 import SummaryMessage from './components/SummaryMessage';
+import './bottom-bar.css';
 
 
 function App() {
@@ -13,7 +15,7 @@ function App() {
   const [canFly, setCanFly] = useState(null);
   const [reasons, setReasons] = useState([]);
 
-  const [radius, setRadius] = useState(1000); // metros
+  const [radius, setRadius] = useState(500); // metros
   const [maxAllowedHeight, setMaxAllowedHeight] = useState(null);
 
   // Nuevo: setSummary para SearchBar
@@ -28,20 +30,35 @@ function App() {
     setLoadingZones(true);
     setLocation({ lat: latlng.lat, lon: latlng.lng });
     try {
-  const zonesRes = await fetch(`/api/zones?lat=${latlng.lat}&lon=${latlng.lng}&radius=${radius}`);
-  const data = await zonesRes.json();
-  setZones(Array.isArray(data.zones) ? data.zones : []);
-  setSummary({ canFly: data.canFly, reasons: data.reasons, maxAllowedHeight: data.maxAllowedHeight });
+      const zonesRes = await fetch(`/api/zones?lat=${latlng.lat}&lon=${latlng.lng}&radius=${radius}`);
+      const data = await zonesRes.json();
+      setZones(Array.isArray(data.zones) ? data.zones : []);
+      setSummary({ canFly: data.canFly, reasons: data.reasons, maxAllowedHeight: data.maxAllowedHeight });
     } catch (err) {
       setZones([]);
-      setSummary(null);
+      setSummary({ canFly: null, reasons: ['Error al cargar zonas'], maxAllowedHeight: null });
     }
     setLoadingZones(false);
-  };
+  }
 
   return (
     <div style={{ height: '100vh', width: '100vw', position: 'relative' }}>
-      <SearchBar setLocation={setLocation} setZones={setZones} setLoadingZones={setLoadingZones} setSummary={setSummary} radius={radius} setRadius={setRadius} />
+      <MapView location={location} zones={zones} radius={radius} onMapClick={handleMapClick} />
+      {/* Barra inferior traslúcida sobre el mapa */}
+      <div style={{
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        bottom: 0,
+        zIndex: 1500,
+        width: '100vw',
+        pointerEvents: 'none',
+        padding: 0,
+      }}>
+        <div className="bottom-bar">
+          <SearchBar setLocation={setLocation} setZones={setZones} setLoadingZones={setLoadingZones} setSummary={setSummary} radius={radius} setRadius={setRadius} />
+        </div>
+      </div>
       {loadingZones && (
         <div style={{
           position: 'absolute',
@@ -62,14 +79,19 @@ function App() {
           </div>
         </div>
       )}
-      {/* Mensaje de resumen con botón de cierre */}
-      <SummaryMessage
-        canFly={canFly}
-        maxAllowedHeight={maxAllowedHeight}
-        reasons={reasons}
-        onClose={() => { setCanFly(null); setReasons([]); setMaxAllowedHeight(null); }}
-      />
-      <MapView location={location} zones={zones} radius={radius} onMapClick={handleMapClick} />
+      {/* Mensaje resumen arriba */}
+      <div style={{ position: 'absolute', top: 10, left: 0, right: 0, zIndex: 1100, display: 'flex', justifyContent: 'center', pointerEvents: 'none' }}>
+        <SummaryMessage
+          canFly={canFly}
+          reasons={reasons}
+          maxAllowedHeight={maxAllowedHeight}
+          onClose={() => {
+            setCanFly(null);
+            setReasons([]);
+            setMaxAllowedHeight(null);
+          }}
+        />
+      </div>
     </div>
   );
 }

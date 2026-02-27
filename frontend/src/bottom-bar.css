@@ -1,0 +1,47 @@
+/* Estilos responsive para la barra inferior y el formulario de búsqueda */
+
+.bottom-bar {
+  border-radius: 0;
+  padding: 14px 24px;
+  width: 100%;
+  max-width: 540px;
+  margin: 0 auto;
+  pointer-events: auto;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  box-sizing: border-box;
+}
+
+@media (max-width: 600px) {
+  .bottom-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding: 10px 2vw;
+    width: 100vw;
+    max-width: 700px;
+    margin: 0;
+    box-sizing: border-box;
+    overflow-x: auto;
+  }
+  .search-responsive-form {
+    flex-direction: column !important;
+    align-items: center !important;
+    gap: 10px !important;
+    width: auto !important;
+    margin: 0 auto !important;
+  }
+  .search-responsive-form > *,
+  .search-responsive-form input[type="text"],
+  .search-responsive-form label,
+  .search-responsive-form button {
+    width: auto !important;
+    min-width: 0 !important;
+    margin: 0 !important;
+    box-sizing: border-box;
+    max-width: 100vw !important;
+    overflow-x: hidden;
+    display: block;
+  }
+}
