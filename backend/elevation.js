@@ -26,6 +26,12 @@ const __dirname  = path.dirname(fileURLToPath(import.meta.url));
 const CACHE_DIR  = path.join(__dirname, 'srtm_cache');
 const MIRROR_URL = 'https://elevation-tiles-prod.s3.amazonaws.com/skadi';
 
+// Crear el directorio de caché si no existe
+if (!fs.existsSync(CACHE_DIR)) {
+  fs.mkdirSync(CACHE_DIR, { recursive: true });
+  console.log(`[SRTM] Directorio de caché creado: ${CACHE_DIR}`);
+}
+
 const gunzip = promisify(zlib.gunzip);
 
 // Caché en memoria: tileKey → Buffer (datos descomprimidos)
@@ -89,14 +95,20 @@ async function ensureTile(tileLat, tileLon) {
   try {
     const resp = await axios.get(info.url, {
       responseType: 'arraybuffer',
-      timeout:      30000,
+      timeout:      60000,  // 60s — Render puede ser lento en free tier
     });
+    console.log(`[SRTM] Tile ${info.key} descargado (${(resp.data.byteLength / 1024 / 1024).toFixed(1)} MB gz), descomprimiendo…`);
     const gz  = Buffer.from(resp.data);
     const buf = await gunzip(gz);
-    // Guardar en disco para próximas ejecuciones
-    fs.writeFileSync(info.hgtFile, buf);
+    // Intentar guardar en disco (puede fallar en entornos sin disco persistente)
+    try {
+      fs.writeFileSync(info.hgtFile, buf);
+      console.log(`[SRTM] Tile ${info.key} guardado en disco (${(buf.length / 1024 / 1024).toFixed(1)} MB)`);
+    } catch (diskErr) {
+      console.warn(`[SRTM] No se pudo guardar en disco (${diskErr.message}), usando solo memoria`);
+    }
     memCache.set(info.key, buf);
-    console.log(`[SRTM] Tile ${info.key} guardado (${(buf.length / 1024 / 1024).toFixed(1)} MB)`);
+    console.log(`[SRTM] Tile ${info.key} listo en memoria`);
     return buf;
   } catch (err) {
     console.warn(`[SRTM] No se pudo descargar ${info.key}: ${err.message}`);

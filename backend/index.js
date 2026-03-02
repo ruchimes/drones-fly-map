@@ -642,7 +642,13 @@ app.get('/api/heatmap', async (req, res) => {
     // ── Elevaciones en batch (una sola petición para toda la grid) ──
     console.log(`[HEATMAP] Consultando elevaciones batch para ${total} celdas…`);
     send('progress', { phase: 'elevaciones', done: 0, total });
-    const elevations = await getElevationBatch(grid.map(c => ({ lat: c.lat, lon: c.lon })));
+    let elevations;
+    try {
+      elevations = await getElevationBatch(grid.map(c => ({ lat: c.lat, lon: c.lon })));
+    } catch (elevErr) {
+      console.warn(`[HEATMAP] Error en elevaciones batch: ${elevErr.message}. Usando null para todas las celdas.`);
+      elevations = new Array(total).fill(null);
+    }
     const elevNull = elevations.filter(e => e === null).length;
     console.log(`[HEATMAP] Elevaciones obtenidas: ${total - elevNull}/${total} (${elevNull} nulas)`);
 
