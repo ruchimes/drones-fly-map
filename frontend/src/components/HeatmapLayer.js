@@ -1,0 +1,174 @@
+import React, { useMemo } from 'react';
+import { Rectangle, Tooltip } from 'react-leaflet';
+
+// ─── Paleta de colores ────────────────────────────────────────────────────────
+
+/**
+ * Devuelve el color de relleno de una celda según su estado de vuelo.
+ *
+ *  canFly=true, maxAllowedHeight >= 120  → verde oscuro  (libre hasta 120m)
+ *  canFly=true, maxAllowedHeight >= 60   → verde claro   (libre hasta Xm)
+ *  canFly=true, maxAllowedHeight > 0     → amarillo      (límite de altura bajo)
+ *  canFly=false                          → rojo          (prohibido)
+ *  canFly=null                           → gris          (sin datos)
+ */
+function cellColor(canFly, maxAllowedHeight) {
+  if (canFly === null || canFly === undefined) return { fill: '#9e9e9e', stroke: '#757575' };
+  if (!canFly)                                return { fill: '#f44336', stroke: '#c62828' };
+  const h = maxAllowedHeight ?? 120;
+  if (h >= 120)  return { fill: '#43a047', stroke: '#2e7d32' };
+  if (h >= 60)   return { fill: '#8bc34a', stroke: '#558b2f' };
+  if (h >= 30)   return { fill: '#ffee58', stroke: '#f9a825' };
+  return           { fill: '#ff9800', stroke: '#e65100' };
+}
+
+/**
+ * Leyenda de colores del heatmap.
+ */
+export function HeatmapLegend() {
+  const items = [
+    { color: '#43a047', label: 'Libre hasta 120m' },
+    { color: '#8bc34a', label: 'Libre hasta 60–119m' },
+    { color: '#ffee58', label: 'Libre hasta 30–59m' },
+    { color: '#ff9800', label: 'Libre hasta <30m' },
+    { color: '#f44336', label: 'Prohibido / restringido' },
+    { color: '#9e9e9e', label: 'Sin datos' },
+  ];
+
+  return (
+    <div style={{
+      position: 'absolute',
+      bottom: 90,
+      right: 14,
+      background: 'rgba(255,255,255,0.93)',
+      borderRadius: 10,
+      padding: '10px 14px',
+      zIndex: 1200,
+      boxShadow: '0 2px 8px rgba(0,0,0,0.18)',
+      minWidth: 190,
+      pointerEvents: 'none',
+    }}>
+      <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 7, color: '#333' }}>
+        🗺️ Mapa de vuelo
+      </div>
+      {items.map(({ color, label }) => (
+        <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+          <div style={{
+            width: 18, height: 14, borderRadius: 3,
+            background: color, border: '1px solid rgba(0,0,0,0.15)',
+            flexShrink: 0,
+          }} />
+          <span style={{ fontSize: 12, color: '#444' }}>{label}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── HeatmapLayer ─────────────────────────────────────────────────────────────
+
+/**
+ * Renderiza la capa de celdas del heatmap sobre el mapa Leaflet.
+ *
+ * Props:
+ *   heatmap      — objeto { cellM, cells: [{ lat, lon, canFly, maxAllowedHeight, terrainElevation, reasons, zoneNames }] }
+ *   onCellClick  — (cell) => void  (opcional)
+ */
+function HeatmapLayer({ heatmap, onCellClick, cellClickedRef }) {
+  // Calcular tamaño de cada celda en grados
+  const { cellDegLat, cellDegLon } = useMemo(() => {
+    if (!heatmap?.cells?.length) return { cellDegLat: 0, cellDegLon: 0 };
+
+    const cellKm    = heatmap.cellM / 1000;
+    // Usamos la latitud media de la rejilla para la conversión lon
+    const avgLat    = heatmap.cells.reduce((s, c) => s + c.lat, 0) / heatmap.cells.length;
+    const degLat    = cellKm / 111;
+    const degLon    = cellKm / (111 * Math.cos((avgLat * Math.PI) / 180));
+    return { cellDegLat: degLat, cellDegLon: degLon };
+  }, [heatmap]);
+
+  if (!heatmap?.cells?.length) return null;
+
+  const half_lat = cellDegLat / 2;
+  const half_lon = cellDegLon / 2;
+
+  return (
+    <>
+      {heatmap.cells.map((cell, i) => {
+        const { fill, stroke } = cellColor(cell.canFly, cell.maxAllowedHeight);
+        const bounds = [
+          [cell.lat - half_lat, cell.lon - half_lon],
+          [cell.lat + half_lat, cell.lon + half_lon],
+        ];
+
+        const label = cell.canFly === false
+          ? '🚫 Prohibido / restringido'
+          : cell.canFly === true
+            ? `✅ Libre hasta ${cell.maxAllowedHeight ?? 120}m`
+            : '❓ Sin datos';
+
+        return (
+          <Rectangle
+            key={i}
+            bounds={bounds}
+            pathOptions={{
+              color:       stroke,
+              fillColor:   fill,
+              fillOpacity: 0.52,
+              weight:      0.5,
+            }}
+            eventHandlers={onCellClick ? {
+              click: e => {
+                e.originalEvent.stopPropagation(); // intento 1: cortar burbujeo nativo
+                if (cellClickedRef) cellClickedRef.current = true; // intento 2: flag para MapClickHandler
+                onCellClick(cell);
+              },
+            } : {}}
+          >
+            <Tooltip sticky direction="top" offset={[0, -4]}>
+              <div style={{ fontSize: 12, maxWidth: 220, wordBreak: 'break-word' }}>
+                <b>{label}</b>
+                {cell.terrainElevation != null && (
+                  <div style={{ color: '#555', marginTop: 2 }}>
+                    🏔️ Terreno: {cell.terrainElevation}m AMSL
+                  </div>
+                )}
+                {cell.zoneNames?.length > 0 && (
+                  <div style={{ color: '#555', marginTop: 2 }}>
+                    📍 {cell.zoneNames.slice(0, 2).join(', ')}{cell.zoneNames.length > 2 ? '…' : ''}
+                  </div>
+                )}
+                {cell.reasons?.length > 0 && (
+                  <div style={{ marginTop: 4, borderTop: '1px solid #ddd', paddingTop: 3 }}>
+                    {cell.reasons.slice(0, 2).map((r, ri) => (
+                      <div key={ri} style={{
+                        color: cell.canFly ? '#2e7d32' : '#c62828',
+                        marginTop: 1,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        maxWidth: 210,
+                      }} title={r}>
+                        {r.length > 60 ? r.slice(0, 57) + '…' : r}
+                      </div>
+                    ))}
+                    {cell.reasons.length > 2 && (
+                      <div style={{ color: '#888', fontSize: 10, marginTop: 1 }}>
+                        +{cell.reasons.length - 2} más — click para ver todo
+                      </div>
+                    )}
+                  </div>
+                )}
+                <div style={{ color: '#999', marginTop: 3, fontSize: 10 }}>
+                  {cell.lat.toFixed(5)}, {cell.lon.toFixed(5)}
+                </div>
+              </div>
+            </Tooltip>
+          </Rectangle>
+        );
+      })}
+    </>
+  );
+}
+
+export default HeatmapLayer;

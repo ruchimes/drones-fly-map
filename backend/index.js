@@ -6,6 +6,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { ENAIRE_LAYERS } from './enaireLayers.js';
+import { getElevationLocal, getElevationBatchLocal } from './elevation.js';
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
@@ -143,18 +144,28 @@ function saveEnaireLog(query, results) {
 // ─── Elevación del terreno ────────────────────────────────────────────────────
 
 /**
- * Consulta la elevación AMSL del terreno en un punto (SRTM via open-topo-data).
- * Devuelve metros AMSL, o null si falla.
+ * Consulta la elevación AMSL del terreno en un punto.
+ * Usa tiles SRTM locales (caché en disco). Fallback a opentopodata si el tile
+ * no se puede descargar.
  */
 async function getElevation(lat, lon) {
   try {
-    const { data } = await axios.get('https://api.opentopodata.org/v1/srtm30m', {
-      params: { locations: `${lat},${lon}` },
-      timeout: 5000,
-    });
-    return data?.results?.[0]?.elevation ?? null;
+    return await getElevationLocal(lat, lon);
   } catch {
     return null;
+  }
+}
+
+/**
+ * Consulta batch de elevaciones para múltiples puntos.
+ * Usa tiles SRTM locales — sin límite de rate, sin llamadas externas una vez cacheados.
+ */
+async function getElevationBatch(coords) {
+  try {
+    return await getElevationBatchLocal(coords);
+  } catch (err) {
+    console.warn(`[ELEVACIÓN BATCH] Error: ${err.message}`);
+    return new Array(coords.length).fill(null);
   }
 }
 
@@ -275,6 +286,10 @@ function analyzeFlightPermission(restrictiveZones, allZones, terrainElevation = 
   // Sin restricciones
   if (restrictiveZones.length === 0) return FREE_FLIGHT;
 
+  // Acumuladores globales — se rellenan a lo largo de toda la función
+  const reasons          = [];
+  const permittedHeights = [];
+
   // NOTAMs activos con prohibición explícita — prioridad máxima
   // qcode en el servicio ya viene SIN la Q inicial: "RDCA" en vez de "QRDCA"
   // R* = restricted area, P* = prohibited area, D* = danger area
@@ -342,22 +357,15 @@ function analyzeFlightPermission(restrictiveZones, allZones, terrainElevation = 
       };
     }
 
-    // Todos los NOTAMs son futuros o ya caducaron → se puede volar pero se avisa
-    return {
-      canFly:           true,
-      maxAllowedHeight: 120,
-      reasons: [
-        'No hay restricciones activas en este momento.',
-        ...notActiveNow.map(z =>
-          `⚠️ NOTAM próximo — ${z.name}${
-            z.attributes?.itemBstr && z.attributes?.itemCstr
-              ? ` (desde ${z.attributes.itemBstr} hasta ${z.attributes.itemCstr})`
-              : ''
-          }`,
-        ),
-      ],
-      zones: allZones,
-    };
+    // NOTAMs futuros: acumular avisos pero CONTINUAR evaluando el resto de zonas
+    // (no hacer return aquí — puede haber otras restricciones activas)
+    notActiveNow.forEach(z =>
+      reasons.push(`⚠️ NOTAM próximo — ${z.name}${
+        z.attributes?.itemBstr && z.attributes?.itemCstr
+          ? ` (desde ${z.attributes.itemBstr} hasta ${z.attributes.itemCstr})`
+          : ''
+      }`),
+    );
   }
 
   // Bloqueo por restricción fotográfica
@@ -390,8 +398,6 @@ function analyzeFlightPermission(restrictiveZones, allZones, terrainElevation = 
   }
 
   // Análisis de alturas permitidas
-  const reasons          = [];
-  const permittedHeights = [];
   let allZonesAreHigh    = true;
 
   // Las zonas condicionales aportan su altura libre directamente
@@ -440,12 +446,19 @@ function analyzeFlightPermission(restrictiveZones, allZones, terrainElevation = 
   for (const z of restrictiveZones) {
     if (conditionalZones.includes(z)) continue;  // ya procesadas arriba
     const msg = z.message || z.warning || '';
+    const msgClean = stripHtml(msg).toLowerCase();
 
-    const heightMatch =
+    // "Por debajo de Xm se requiere permiso/autorización" NO es altura libre —
+    // es una restricción que aplica DESDE el suelo. Excluimos ese patrón del match de alturas.
+    const isPermitRequired =
+      /por debajo de\s*\d{1,4}\s*m[^.]*(?:se requiere|requiere|es necesario|necesita|autoriza|permiso)/i.test(msgClean);
+
+    const heightMatch = isPermitRequired ? null : (
       msg.match(/por debajo de\s*(\d{1,4})\s*m/iu)       ||
       msg.match(/altura m[aá]xima de\s*(\d{1,4})\s*m/iu)  ||
       msg.match(/permitidas?\s*[^\d]*(\d{1,4})\s*m/iu)    ||
-      msg.match(/hasta\s*(\d{1,4})\s*m/iu);
+      msg.match(/hasta\s*(\d{1,4})\s*m/iu)
+    );
 
     const lowerFtMatch = msg.match(/Nivel inferior:\s*(\d{3,5})ft/iu);
 
@@ -461,18 +474,109 @@ function analyzeFlightPermission(restrictiveZones, allZones, terrainElevation = 
     }
   }
 
-  if (allZonesAreHigh)          return FREE_FLIGHT;
+  if (allZonesAreHigh) {
+    // Solo hay zonas de espacio aéreo superior (>120m) + posibles avisos de NOTAM futuro
+    return { ...FREE_FLIGHT, reasons: ['No hay restricciones activas en la zona. Permitido hasta 120m.', ...reasons], zones: allZones };
+  }
   if (permittedHeights.length > 0) {
     return { canFly: true, maxAllowedHeight: Math.min(...permittedHeights), reasons, zones: allZones };
   }
 
-  // Requiere coordinación
+  // Requiere coordinación — añadir avisos NOTAM acumulados si los hay
   return {
     canFly:           false,
     maxAllowedHeight: null,
-    reasons:          restrictiveZones.map(z => `Requiere coordinación: ${z.name}`),
-    zones:            allZones,
+    reasons:          [
+      ...reasons,
+      ...restrictiveZones
+        .filter(z => z.layer !== 'NOTAMs activos')
+        .map(z => `Requiere coordinación: ${z.name}`),
+    ],
+    zones: allZones,
   };
+}
+
+// ─── Heatmap helpers ─────────────────────────────────────────────────────────
+
+/**
+ * Genera las coordenadas centrales de una rejilla de celdas de `cellM` metros
+ * que cubre el área de `radiusKm` km alrededor de (lat, lon).
+ * Devuelve array de { lat, lon, rowIdx, colIdx }.
+ */
+function buildGrid(lat, lon, radiusKm, cellM = 100) {
+  const cellKm  = cellM / 1000;
+  const halfLat = radiusKm / 111;                                     // grados latitud
+  const halfLon = radiusKm / (111 * Math.cos((lat * Math.PI) / 180)); // grados longitud
+  const stepLat = cellKm  / 111;
+  const stepLon = cellKm  / (111 * Math.cos((lat * Math.PI) / 180));
+
+  const cells = [];
+  let row = 0;
+  for (let dlat = halfLat - stepLat / 2; dlat > -halfLat; dlat -= stepLat, row++) {
+    let col = 0;
+    for (let dlon = -halfLon + stepLon / 2; dlon < halfLon; dlon += stepLon, col++) {
+      cells.push({ lat: lat + dlat, lon: lon + dlon, rowIdx: row, colIdx: col });
+    }
+  }
+  return cells;
+}
+
+/**
+ * Analiza un único punto (lat, lon) con radio `cellM/2` metros.
+ * Si se pasa `precomputedElevation`, se usa directamente (evita llamada a opentopodata).
+ * Devuelve { canFly, maxAllowedHeight, terrainElevation, reasons, zoneNames }.
+ */
+async function analyzePoint(lat, lon, cellM = 100, precomputedElevation = undefined) {
+  const radiusKm = (cellM / 2) / 1000;
+
+  // Si ya tenemos la elevación no la pedimos de nuevo
+  const elevationPromise = precomputedElevation !== undefined
+    ? Promise.resolve(precomputedElevation)
+    : getElevation(lat, lon);
+
+  const [layerResults, notamResult, terrainElevation] = await Promise.all([
+    Promise.all(ENAIRE_LAYERS.map(layer => queryEnaireLayer(layer, { lat, lon, radiusKm }))),
+    queryNotamLayer({ lat, lon, radiusKm }),
+    elevationPromise,
+  ]);
+
+  const allResults = [...layerResults, notamResult];
+  const zones = allResults.flatMap(r => r.features.map(f => normalizeFeature(f, r.layer)));
+
+  const restrictiveZones = zones.filter(z => {
+    const identifier = z.attributes?.identifier || '';
+    return !matchesAny(INFO_ONLY_PATTERNS, stripHtml(z.message)) &&
+           !matchesAny(INFO_ONLY_PATTERNS, z.name || '') &&
+           !matchesAny(INFO_ONLY_PATTERNS, identifier);
+  });
+
+  const result = analyzeFlightPermission(restrictiveZones, zones, terrainElevation);
+  return {
+    canFly:           result.canFly,
+    maxAllowedHeight: result.maxAllowedHeight,
+    terrainElevation,
+    reasons:          result.reasons || [],
+    zoneNames:        restrictiveZones.map(z => z.name || z.attributes?.identifier || '?'),
+  };
+}
+
+/**
+ * Ejecuta una lista de tareas asíncronas con concurrencia máxima `limit`.
+ */
+async function pLimit(tasks, limit) {
+  const results = new Array(tasks.length);
+  let idx = 0;
+
+  async function worker() {
+    while (idx < tasks.length) {
+      const i = idx++;
+      results[i] = await tasks[i]();
+    }
+  }
+
+  const workers = Array.from({ length: Math.min(limit, tasks.length) }, worker);
+  await Promise.all(workers);
+  return results;
 }
 
 // ─── Express ──────────────────────────────────────────────────────────────────
@@ -498,6 +602,108 @@ app.get('/api/geocode', async (req, res) => {
     res.json({ location: { lat: parseFloat(lat), lon: parseFloat(lon), name: display_name } });
   } catch {
     res.status(500).json({ error: 'Geocoding failed' });
+  }
+});
+
+// ─── GET /api/heatmap ────────────────────────────────────────────────────────
+//
+// Streaming via Server-Sent Events (SSE).
+// Envía eventos durante el análisis:
+//   event: progress  data: { done, total }
+//   event: result    data: { cellM, radiusKm, rows, cols, cells }
+//   event: error     data: { error }
+// ─────────────────────────────────────────────────────────────────────────────
+
+app.get('/api/heatmap', async (req, res) => {
+  const lat = parseFloat(req.query.lat);
+  const lon = parseFloat(req.query.lon);
+
+  if (isNaN(lat) || isNaN(lon)) {
+    return res.status(400).json({ error: 'lat/lon requeridos' });
+  }
+
+  const radiusKm    = Math.min(2,   Math.max(0.1, parseFloat(req.query.radiusKm   || 1)));
+  const cellM       = Math.min(500, Math.max(50,  parseInt(req.query.cellM        || 100, 10)));
+  const concurrency = Math.min(30,  Math.max(1,   parseInt(req.query.concurrency  || 15,  10)));
+
+  const grid = buildGrid(lat, lon, radiusKm, cellM);
+  const total = grid.length;
+  console.log(`[HEATMAP] ${total} celdas (radio ${radiusKm}km, celda ${cellM}m, concurrencia ${concurrency})`);
+
+  // ── Cabeceras SSE ──
+  res.setHeader('Content-Type',  'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection',    'keep-alive');
+  res.flushHeaders();
+
+  const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+
+  try {
+    // ── Elevaciones en batch (una sola petición para toda la grid) ──
+    console.log(`[HEATMAP] Consultando elevaciones batch para ${total} celdas…`);
+    send('progress', { phase: 'elevaciones', done: 0, total });
+    const elevations = await getElevationBatch(grid.map(c => ({ lat: c.lat, lon: c.lon })));
+    const elevNull = elevations.filter(e => e === null).length;
+    console.log(`[HEATMAP] Elevaciones obtenidas: ${total - elevNull}/${total} (${elevNull} nulas)`);
+
+    let done = 0;
+    const cells = new Array(total);
+
+    const tasks = grid.map((cell, i) => async () => {
+      const result = await analyzePoint(cell.lat, cell.lon, cellM, elevations[i]);
+      cells[i] = {
+        lat:              cell.lat,
+        lon:              cell.lon,
+        rowIdx:           cell.rowIdx,
+        colIdx:           cell.colIdx,
+        canFly:           result.canFly,
+        maxAllowedHeight: result.maxAllowedHeight,
+        terrainElevation: result.terrainElevation,
+        reasons:          result.reasons,
+        zoneNames:        result.zoneNames,
+      };
+      done++;
+      // Enviar progreso cada celda (el cliente lo pinta en tiempo real)
+      send('progress', { done, total });
+      if (done % 20 === 0 || done === total) {
+        console.log(`[HEATMAP] Progreso: ${done}/${total}`);
+      }
+    });
+
+    await pLimit(tasks, concurrency);
+
+    const rows = Math.max(...cells.map(c => c.rowIdx)) + 1;
+    const cols = Math.max(...cells.map(c => c.colIdx)) + 1;
+
+    // ── Log detallado a disco ──
+    const heatmapLog = {
+      timestamp: new Date().toISOString(),
+      query: { lat, lon, radiusKm, cellM },
+      grid: { rows, cols, total },
+      cells: cells.map(c => ({
+        rowIdx:           c.rowIdx,
+        colIdx:           c.colIdx,
+        lat:              c.lat,
+        lon:              c.lon,
+        canFly:           c.canFly,
+        maxAllowedHeight: c.maxAllowedHeight,
+        terrainElevation: c.terrainElevation,
+        zoneNames:        c.zoneNames,
+        reasons:          c.reasons,
+      })),
+    };
+    const HEATMAP_LOG_PATH = path.join(__dirname, 'heatmap_log.json');
+    fs.writeFileSync(HEATMAP_LOG_PATH, JSON.stringify(heatmapLog, null, 2), 'utf8');
+    console.log(`[HEATMAP] Log guardado en ${HEATMAP_LOG_PATH}`);
+
+    console.log(`[HEATMAP] Completado. ${rows}×${cols} grid.`);
+    send('result', { cellM, radiusKm, rows, cols, cells });
+    res.end();
+
+  } catch (err) {
+    console.error('[HEATMAP] Error:', err);
+    send('error', { error: err.message });
+    res.end();
   }
 });
 

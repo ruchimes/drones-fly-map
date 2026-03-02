@@ -49,5 +49,5 @@ export function useZones(radius) {
     fetchZones(lat, lng);
   }, [fetchZones]);
 
-  return { location, setLocation, zones, loading, summary, clearSummary, handleMapClick, fetchByAddress };
+  return { location, setLocation, zones, loading, summary, setSummary, clearSummary, handleMapClick, fetchByAddress };
 }

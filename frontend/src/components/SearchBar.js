@@ -67,7 +67,21 @@ const buttonStyle = loading => ({
 
 // ─── SearchBar ────────────────────────────────────────────────────────────────
 
-function SearchBar({ radius, setRadius, fetchByAddress }) {
+/**
+ * Props:
+ *   radius, setRadius, fetchByAddress  — búsqueda normal
+ *   heatmapActive    — boolean: hay heatmap visible
+ *   heatmapLoading   — boolean: análisis en curso
+ *   heatmapError     — string | null
+ *   onAnalyze        — () => void
+ *   onClearHeatmap   — () => void
+ *   hasLocation      — boolean: hay un punto seleccionado
+ */
+function SearchBar({
+  radius, setRadius, fetchByAddress,
+  heatmapActive, heatmapLoading, heatmapError,
+  onAnalyze, onClearHeatmap, hasLocation,
+}) {
   const [address, setAddress] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -81,6 +95,36 @@ function SearchBar({ radius, setRadius, fetchByAddress }) {
     }
     setLoading(false);
   };
+
+  // Botón del heatmap: solo visible cuando hay punto seleccionado
+  const heatmapBtn = hasLocation ? (
+    heatmapLoading ? (
+      <button type="button" disabled style={{
+        ...buttonStyle(true),
+        background: 'linear-gradient(90deg,#1565c0 60%,#42a5f5 100%)',
+        display: 'flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap',
+      }}>
+        <span style={{ display: 'inline-block', animation: 'spin 1s linear infinite' }}>⏳</span>
+        Analizando…
+      </button>
+    ) : heatmapActive ? (
+      <button type="button" onClick={onClearHeatmap} style={{
+        ...buttonStyle(false),
+        background: 'linear-gradient(90deg,#c62828 60%,#ef9a9a 100%)',
+        whiteSpace: 'nowrap',
+      }}>
+        ✕ Limpiar mapa
+      </button>
+    ) : (
+      <button type="button" onClick={onAnalyze} style={{
+        ...buttonStyle(false),
+        background: 'linear-gradient(90deg,#1565c0 60%,#42a5f5 100%)',
+        whiteSpace: 'nowrap',
+      }}>
+        🗺️ Analizar zona
+      </button>
+    )
+  ) : null;
 
   return (
     <form className="search-responsive-form" onSubmit={handleSearch} style={styles.form}>
@@ -105,6 +149,12 @@ function SearchBar({ radius, setRadius, fetchByAddress }) {
       <button type="submit" disabled={loading} style={buttonStyle(loading)}>
         {loading ? 'Buscando...' : 'Buscar'}
       </button>
+      {heatmapBtn}
+      {heatmapError && (
+        <span style={{ fontSize: 12, color: '#c62828', whiteSpace: 'nowrap' }}>
+          ⚠️ {heatmapError}
+        </span>
+      )}
     </form>
   );
 }
