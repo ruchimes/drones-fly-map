@@ -37,23 +37,13 @@ function MapClickHandler({ onMapClick, cellClickedRef }) {
 
 function ZonePolygon({ zone }) {
   if (!zone.geometry || zone.geometry.length < 3) return null;
-
-  const showMaxHeight = zone.maxHeight && Number(zone.maxHeight) <= 120;
   const color = zoneColor(zone);
 
   return (
     <Polygon
       positions={zone.geometry}
       pathOptions={{ color, interactive: false, fillOpacity: 0.2 }}
-    >
-      <Popup>
-        <b>{zone.name}</b><br />
-        {zone.prohibited  && <span style={{ color: 'red' }}>Prohibido volar drones aquí.<br /></span>}
-        {showMaxHeight    && <span style={{ color: 'orange' }}>No volar a más de {zone.maxHeight}m.<br /></span>}
-        {zone.warning     && <span style={{ color: 'goldenrod' }}>Aviso:<br /><span dangerouslySetInnerHTML={{ __html: zone.warning }} /></span>}
-        {!zone.prohibited && !zone.maxHeight && !zone.warning && <span style={{ color: 'green' }}>Sin restricciones.<br /></span>}
-      </Popup>
-    </Polygon>
+    />
   );
 }
 

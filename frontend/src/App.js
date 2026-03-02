@@ -89,8 +89,7 @@ function App() {
         heatmap={heatmap}
         cellClickedRef={cellClickedRef}
         onHeatmapCellClick={cell => {
-          cellClickedRef.current = Date.now(); // marcar antes de que llegue el click del mapa
-          console.log('[APP] onHeatmapCellClick fired, ref=', cellClickedRef.current);
+          cellClickedRef.current = Date.now();
           setSummaryFromCell(cell);
         }}
       />
