@@ -184,7 +184,7 @@ function App() {
       {heatmap && showLegend && (
         <div style={{
           position: 'absolute',
-          bottom: 204,
+          bottom: 190,
           right: 14,
           zIndex: 1200,
         }}>
