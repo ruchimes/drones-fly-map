@@ -17,15 +17,13 @@ const zoneColor = zone => {
 
 // ─── MapClickHandler ──────────────────────────────────────────────────────────
 
-/** Captura clicks del mapa y los reenvía a onMapClick, sin problemas de closure stale.
- *  Ignora el click si se originó en una celda del heatmap (funciona en desktop y touch). */
+/** Captura clicks del mapa y los reenvía a onMapClick, sin problemas de closure stale. */
 function MapClickHandler({ onMapClick, cellClickedRef }) {
   const callbackRef = useRef(onMapClick);
   useEffect(() => { callbackRef.current = onMapClick; }, [onMapClick]);
   useMapEvents({
     click: e => {
-      // cellClickedRef guarda el timestamp del último click en celda.
-      // Si han pasado menos de 600ms, es el mismo gesto táctil → ignorar.
+      // Doble guardia: también aquí filtramos por si acaso
       if (cellClickedRef?.current && (Date.now() - cellClickedRef.current < 600)) {
         return;
       }
@@ -63,25 +61,26 @@ function ZonePolygon({ zone }) {
 
 const DEFAULT_CENTER = [40.4168, -3.7038]; // Madrid
 
-function MapView({ location, zones = [], radius = 1000, onMapClick, heatmap = null, onHeatmapCellClick }) {
+function MapView({ location, zones = [], radius = 1000, onMapClick, heatmap = null, onHeatmapCellClick, cellClickedRef }) {
   const center = location ? [location.lat, location.lon] : DEFAULT_CENTER;
-  // Flag compartido: HeatmapLayer lo activa, MapClickHandler lo consume
-  const cellClickedRef = useRef(false);
+  // Si no viene cellClickedRef desde fuera, usamos uno local como fallback
+  const localRef = useRef(0);
+  const activeRef = cellClickedRef ?? localRef;
 
   return (
     <MapContainer center={center} zoom={14} style={{ height: '100vh', width: '100vw' }} zoomControl={false}>
       <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
       <MapFlyTo location={location} />
-      <MapClickHandler onMapClick={onMapClick} cellClickedRef={cellClickedRef} />
+      <MapClickHandler onMapClick={onMapClick} cellClickedRef={activeRef} />
 
       {/* Heatmap de cuadrícula (se muestra debajo de zonas y marcadores) */}
-      <HeatmapLayer heatmap={heatmap} onCellClick={onHeatmapCellClick} cellClickedRef={cellClickedRef} />
+      <HeatmapLayer heatmap={heatmap} onCellClick={onHeatmapCellClick} cellClickedRef={activeRef} />
 
       {location && (
         <Marker
           position={[location.lat, location.lon]}
           eventHandlers={{
-            click: () => { cellClickedRef.current = Date.now(); },
+            click: () => { activeRef.current = Date.now(); },
           }}
         />
       )}

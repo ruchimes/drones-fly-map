@@ -5,7 +5,7 @@ import API_BASE from '../api';
  * Gestiona la consulta de zonas ENAIRE y el estado derivado (canFly, reasons, etc.).
  * Tanto el click en el mapa como la búsqueda por texto comparten esta lógica.
  */
-export function useZones(radius) {
+export function useZones(radius, cellClickedRef) {
   const [location, setLocation]   = useState(null);
   const [zones, setZones]         = useState([]);
   const [loading, setLoading]     = useState(false);
@@ -46,9 +46,13 @@ export function useZones(radius) {
 
   /** Handler para el click en el mapa (recibe latlng de Leaflet). */
   const handleMapClick = useCallback(({ lat, lng }) => {
+    // Si han pasado menos de 600ms desde un click en celda/marker, ignorar
+    if (cellClickedRef?.current && (Date.now() - cellClickedRef.current < 600)) {
+      return;
+    }
     setLocation({ lat, lon: lng });
     fetchZones(lat, lng);
-  }, [fetchZones]);
+  }, [fetchZones, cellClickedRef]);
 
   return { location, setLocation, zones, loading, summary, setSummary, clearSummary, handleMapClick, fetchByAddress };
 }

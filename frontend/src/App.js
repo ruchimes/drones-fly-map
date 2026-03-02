@@ -1,5 +1,5 @@
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 
 import MapView from './components/MapView';
 import SearchBar from './components/SearchBar';
@@ -41,6 +41,10 @@ function LoadingOverlay() {
 function App() {
   const [radius, setRadius] = useState(500); // metros
 
+  // Ref compartido: se activa cuando el usuario pincha una celda del heatmap
+  // para que handleMapClick ignore el click del mapa que llega justo después
+  const cellClickedRef = useRef(0);
+
   const {
     location, setLocation,
     zones,
@@ -48,7 +52,7 @@ function App() {
     summary, setSummary, clearSummary,
     handleMapClick,
     fetchByAddress,
-  } = useZones(radius);
+  } = useZones(radius, cellClickedRef);
 
   // Muestra en el panel superior el resultado ya calculado de una celda del heatmap
   const setSummaryFromCell = useCallback(cell => {
@@ -83,9 +87,9 @@ function App() {
         radius={radius}
         onMapClick={handleMapClick}
         heatmap={heatmap}
+        cellClickedRef={cellClickedRef}
         onHeatmapCellClick={cell => {
-          // Al pinchar una celda del heatmap usamos sus datos ya calculados
-          // (misma lógica que /api/zones pero con el radio de la celda, no el del slider)
+          cellClickedRef.current = Date.now(); // marcar antes de que llegue el click del mapa
           setSummaryFromCell(cell);
         }}
       />
