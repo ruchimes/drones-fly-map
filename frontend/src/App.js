@@ -55,7 +55,7 @@ function App() {
         pointerEvents: 'none',
         padding: 0,
       }}>
-        <div className="bottom-bar">
+        <div className="bottom-bar" style={{ pointerEvents: 'auto' }}>
           <SearchBar setLocation={setLocation} setZones={setZones} setLoadingZones={setLoadingZones} setSummary={setSummary} radius={radius} setRadius={setRadius} />
         </div>
       </div>

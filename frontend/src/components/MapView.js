@@ -1,5 +1,5 @@
 
-import React from 'react';
+import React, { useRef, useEffect } from 'react';
 import { MapContainer, TileLayer, Marker, Circle, Polygon, Popup, useMapEvents } from 'react-leaflet';
 import MapFlyTo from './MapFlyTo';
 
@@ -13,10 +13,14 @@ const colorByRestriction = (zone) => {
 
 
 function MapClickHandler({ onMapClick }) {
+  // Usar ref para evitar closure stale: siempre apunta a la función más reciente
+  const onMapClickRef = useRef(onMapClick);
+  useEffect(() => { onMapClickRef.current = onMapClick; }, [onMapClick]);
+
   useMapEvents({
     click(e) {
-      if (onMapClick) {
-        onMapClick(e.latlng);
+      if (onMapClickRef.current) {
+        onMapClickRef.current(e.latlng);
       }
     }
   });
@@ -39,10 +43,11 @@ function MapView({ location, zones, radius=1000, onMapClick }) {
       {location && <Marker position={[location.lat, location.lon]} />}
       {location && <Circle center={[location.lat, location.lon]} radius={radius} color="blue" />}
       {zones.map((zone, i) => {
+        if (!zone.geometry || zone.geometry.length < 3) return null;
         // Ocultar popups de restricciones de altura absurdas (>120m)
         const showMaxHeight = zone.maxHeight && Number(zone.maxHeight) <= 120;
         return (
-          <Polygon key={i} positions={zone.geometry} color={colorByRestriction(zone)}>
+          <Polygon key={i} positions={zone.geometry} pathOptions={{ color: colorByRestriction(zone), interactive: false, fillOpacity: 0.2 }}>
             {(zone.prohibited || showMaxHeight || zone.warning || (!zone.prohibited && !zone.maxHeight && !zone.warning)) && (
               <Popup>
                 <div>

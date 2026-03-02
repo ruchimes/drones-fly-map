@@ -13,9 +13,9 @@ function SearchBar({ setLocation, setZones, setLoadingZones, setSummary, radius,
     try {
       const geoRes = await axios.get(`/api/geocode?address=${encodeURIComponent(address)}`);
       setLocation(geoRes.data.location);
-  const zonesRes = await axios.get(`/api/zones?lat=${geoRes.data.location.lat}&lon=${geoRes.data.location.lon}&radius=${radius}`);
-      setZones(zonesRes.data.zones);
-      setSummary && setSummary({ canFly: zonesRes.data.canFly, reasons: zonesRes.data.reasons });
+      const zonesRes = await axios.get(`/api/zones?lat=${geoRes.data.location.lat}&lon=${geoRes.data.location.lon}&radius=${radius}`);
+      setZones(Array.isArray(zonesRes.data.zones) ? zonesRes.data.zones : []);
+      setSummary && setSummary({ canFly: zonesRes.data.canFly, reasons: zonesRes.data.reasons, maxAllowedHeight: zonesRes.data.maxAllowedHeight });
     } catch (err) {
       alert('No se pudo encontrar la dirección o zonas.');
       setZones([]);

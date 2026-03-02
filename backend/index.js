@@ -2,7 +2,79 @@
 import express from 'express';
 import axios from 'axios';
 import cors from 'cors';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { ENAIRE_LAYERS } from './enaireLayers.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const LOG_PATH = path.join(__dirname, 'enaire_zones_log.json');
+
+// --- Helper: guardar log de zonas ENAIRE (sobrescribe en cada llamada) ---
+function saveEnaireLog(query, results) {
+  try {
+    // Solo guardar zonas que tienen features (capas con datos)
+    const layersWithData = results
+      .filter(r => r.features.length > 0)
+      .map(r => ({
+        layer: r.layer,
+        featureCount: r.features.length,
+        zones: r.features.map(f => {
+          const a = f.attributes || {};
+          const rawMsg = a.message || a.DESCRIPCION || a.description || '';
+          const cleanMsg = rawMsg.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+          return {
+            identifier: a.identifier || a.NOMBRE || a.name || null,
+            name: a.name_authority || a.provider || a.originator || null,
+            type: a.type || null,
+            lower: a.lower != null ? `${a.lower}${a.uom || 'm'} ${a.lowerReference || ''}`.trim() : null,
+            upper: a.upper != null ? `${a.upper}${a.uom || 'm'} ${a.upperReference || ''}`.trim() : null,
+            message: cleanMsg || null,
+          };
+        })
+      }));
+
+    const logData = [{
+      timestamp: new Date().toISOString(),
+      query,
+      layers: layersWithData
+    }];
+
+    fs.writeFileSync(LOG_PATH, JSON.stringify(logData, null, 2), 'utf-8');
+    console.log(`[LOG] Zonas ENAIRE guardadas en ${LOG_PATH}`);
+  } catch (logErr) {
+    console.warn('[LOG] Error guardando log:', logErr.message);
+  }
+}
+
+// --- Frases de prohibición absoluta ---
+const forbiddenPhrases = [
+  'NO permitido el vuelo a drones excepto coordinación',
+  'NO permitido el vuelo a drones',
+  'NO permitido el vuelo de drones',
+  'NO permitido el vuelo de UAS',
+  'NO permitido el vuelo a UAS',
+  'NO permitido el vuelo de RPAS',
+  'NO permitido el vuelo a RPAS',
+  'NO permitido el vuelo',
+  'Prohibido el vuelo a drones',
+  'Prohibido el vuelo de drones',
+  'Prohibido el vuelo de UAS',
+  'Prohibido el vuelo a UAS',
+  'Prohibido el vuelo de RPAS',
+  'Prohibido el vuelo a RPAS',
+  'Prohibido el vuelo',
+];
+
+// --- Frases para bloquear vuelo fotográfico ---
+const blockPhotoFlightPhrases = [
+  'restringida al vuelo fotográfico',
+  'restringida al vuelo de fotografía',
+  'restringida al vuelo para fotografía',
+  'restringida al vuelo de captación de datos',
+  'restringida al vuelo de imagen',
+  'restringida al vuelo de cámaras',
+];
 
 const app = express();
 app.use(cors());
@@ -67,169 +139,95 @@ app.get('/api/zones', async (req, res) => {
     const results = await Promise.all(requests);
     console.log('Resultados ENAIRE:', results.map(r => ({ layer: r.layer, features: r.features.length })));
 
-    // Guardar log de consulta antes de filtrar
-    const fs = await import('fs');
-    const logPath = './backend/enaire_zones_log.json';
-    let logArr = [];
-    try {
-      const logRaw = fs.existsSync(logPath) ? fs.readFileSync(logPath, 'utf8') : '[]';
-      logArr = JSON.parse(logRaw);
-    } catch (e) {
-      logArr = [];
-    }
-    logArr.push({
-      timestamp: new Date().toISOString(),
-      lat,
-      lon,
-      radius,
-      layers: results.map(r => ({ layer: r.layer, raw: r.raw }))
-    });
-    try {
-      fs.writeFileSync(logPath, JSON.stringify(logArr, null, 2));
-    } catch (e) {
-      console.warn('No se pudo guardar el log de zonas ENAIRE:', e.message);
-    }
-    // Texto a filtrar completamente (ni zona ni restricción)
-    const filterOutPhrases = [
-      'zona geográfica de UAS general por razón de la seguridad operacional del espacio aéreo controlado',
-      'TMA MADRID',
-      'Están permitidas las operaciones VLOS a una altura máxima de 60m fuera de las ZGUAS generales por razón de la seguridad operacional en el entorno de los aeródromos'
-    ];
-    // Unificar zonas y filtrar las que contienen el texto a descartar o solo "Nivel inferior" alto
-    const zones = results.flatMap(({ layer, features }) =>
-      features.map(f => {
-        try {
-          return {
-            name: f.attributes.name || f.attributes.identifier || f.attributes.NOMBRE || layer || 'Zona',
-            prohibited: (f.attributes.type === 'PROHIBITED') || (f.attributes.RESTRICCION === 'PROHIBIDA') || (f.attributes.TIPO === 'PROHIBIDA'),
-            warning: (f.attributes.type === 'CONDITIONAL' || f.attributes.type === 'REQ_AUTHORIZATION' || f.attributes.RESTRICCION === 'CONDICIONAL' || f.attributes.TIPO === 'CONDICIONAL') ? (f.attributes.message || f.attributes.MENSAJE || f.attributes.DESCRIPCION) : null,
-            maxHeight: f.attributes.upper || f.attributes.RESTRICCION_UPPER || f.attributes.ALTURA_MAX,
-            minHeight: f.attributes.lower || f.attributes.RESTRICCION_LOWER || f.attributes.ALTURA_MIN,
-            message: f.attributes.message || f.attributes.MENSAJE || f.attributes.DESCRIPCION,
-            type: f.attributes.type || f.attributes.RESTRICCION || f.attributes.TIPO,
-            layer,
-            geometry: f.geometry && f.geometry.rings
-              ? f.geometry.rings[0].map(([lng, lat]) => [lat, lng])
-              : []
-          };
-        } catch (err) {
-          console.error('Error procesando feature:', err, f);
-          return { name: 'Error', layer, message: 'Error procesando feature', geometry: [] };
+    // Guardar log con todas las zonas crudas devueltas por ENAIRE
+    saveEnaireLog({ lat, lon, radius: searchRadius }, results);
+
+    // Transformar features en zonas normalizadas
+    const zones = [];
+    for (const result of results) {
+      for (const feature of result.features) {
+        const attrs = feature.attributes || {};
+        const name = attrs.NOMBRE || attrs.nombre || attrs.NAME || attrs.name || attrs.identifier || result.layer;
+        const message = attrs.message || attrs.DESCRIPCION || attrs.descripcion || attrs.DESCRIPTION || attrs.description || attrs.OBSERVACIONES || '';
+        const warning = attrs.warning || attrs.ADVERTENCIA || attrs.advertencia || attrs.WARNING || '';
+        const prohibited = attrs.PROHIBIDO === 'SI' || attrs.prohibited === true;
+        // Convertir geometría ArcGIS (rings) a formato Leaflet [[lat,lon], ...]
+        let geometry = null;
+        if (feature.geometry && Array.isArray(feature.geometry.rings) && feature.geometry.rings.length > 0) {
+          geometry = feature.geometry.rings[0].map(([lon, lat]) => [lat, lon]);
         }
-      })
-    ).filter(z => {
-      const msg = ((z.message || '') + ' ' + (z.warning || '')).replace(/<[^>]+>/g, '').toLowerCase();
-      // Filtrar frases generales
-      if (filterOutPhrases.every(phrase => msg.includes(phrase.toLowerCase()))) return false;
-      // Filtrar zonas cuyo mensaje contiene "Nivel inferior: XXXXft" y XXXX > 400
-      const nivelInfMatch = msg.match(/nivel inferior:\s*(\d{3,5})ft/);
-      if (nivelInfMatch) {
-        const ft = parseInt(nivelInfMatch[1], 10);
-        if (ft > 400) return false;
+        zones.push({ name, layer: result.layer, message, warning, prohibited, attributes: attrs, geometry });
       }
-      // Filtrar zonas cuyo mensaje contiene "FLxxx" (cualquier valor FL)
-      const flMatch = msg.match(/fl\d{2,3}/i);
-      if (flMatch) {
-        return false;
-      }
-      // Filtrar zonas cuyo mensaje contiene "Nivel inferior: FLxxx" (cualquier FL)
-      const nivelInfFLMatch = msg.match(/nivel inferior:\s*fl(\d{2,3})/i);
-      if (nivelInfFLMatch) {
-        return false;
-      }
-      return true;
-    });
-    console.log('Zonas procesadas:', zones.map(z => ({ name: z.name, layer: z.layer, prohibited: z.prohibited, type: z.type })));
-    // Nueva lógica: analizar restricciones y alturas máximas
+    }
+    console.log('Total zonas encontradas:', zones.length);
+    zones.forEach(z => console.log(`  [ZONA] ${z.layer} | ${z.name} | msg: "${z.message.slice(0, 80)}..."`));
+
+    // Filtrar zonas puramente informativas (aviso entorno urbano, aplica a toda España)
+    const infoOnlyPatterns = [
+      /antes de volar compruebe si la zona.*entorno urbano/is,
+    ];
+    const stripHtml = str => str.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+    const restrictiveZones = zones.filter(z =>
+      !infoOnlyPatterns.some(p => p.test(stripHtml(z.message || '')))
+    );
+    console.log(`Zonas restrictivas: ${restrictiveZones.length} / informativas: ${zones.length - restrictiveZones.length}`);
+
+    if (restrictiveZones.length === 0) {
+      return res.json({
+        canFly: true,
+        maxAllowedHeight: 120,
+        reasons: ['No hay restricciones activas en la zona. Permitido hasta 120m.'],
+        zones: []
+      });
+    }
+
+    let canFly = false;
     let reasons = [];
     let permittedHeights = [];
-    let canFly = false;
-    // Detectar si hay alguna zona absolutamente prohibida (sin altura máxima permitida en ese mensaje)
-    const forbiddenPhrases = [
-      'NO permitido el vuelo a drones excepto coordinación',
-      'NO permitido el vuelo a drones',
-      'NO permitido el vuelo de drones',
-      'NO permitido el vuelo de UAS',
-      'NO permitido el vuelo a UAS',
-      'NO permitido el vuelo de RPAS',
-      'NO permitido el vuelo a RPAS',
-      'NO permitido el vuelo',
-      'Prohibido el vuelo a drones',
-      'Prohibido el vuelo de drones',
-      'Prohibido el vuelo de UAS',
-      'Prohibido el vuelo a UAS',
-      'Prohibido el vuelo de RPAS',
-      'Prohibido el vuelo a RPAS',
-      'Prohibido el vuelo',
-    ];
 
-    // Nueva lógica: bloquear si hay restricción de vuelo fotográfico
-    const blockPhotoFlightPhrases = [
-      'restringida al vuelo fotográfico',
-      'restringida al vuelo de fotografía',
-      'restringida al vuelo para fotografía',
-      'restringida al vuelo de captación de datos',
-      'restringida al vuelo de imagen',
-      'restringida al vuelo de cámaras',
-    ];
-    // Buscar zonas con restricción de vuelo fotográfico
-    const photoFlightBlockedZones = zones.filter(zone => {
-      const msg = ((zone.message || '') + ' ' + (zone.warning || ''))
-        .replace(/<[^>]+>/g, '').toLowerCase();
-      return blockPhotoFlightPhrases.some(phrase => msg.includes(phrase));
+    // Bloqueo por restricción fotográfica (case-insensitive)
+    const photoFlightBlockedZones = restrictiveZones.filter(zone => {
+      const msg = ((zone.message || '') + ' ' + (zone.warning || '')).replace(/<[^>]+>/g, '').toLowerCase();
+      return blockPhotoFlightPhrases.some(phrase => msg.includes(phrase.toLowerCase()));
     });
     if (photoFlightBlockedZones.length > 0) {
       canFly = false;
-      let maxAllowedHeight = null;
       photoFlightBlockedZones.forEach(z => {
-        reasons.push('Bloqueo por restricción fotográfica: ' + z.name + ' (' + (z.layer || 'Zona') + ')');
+        reasons.push(`Bloqueo por restricción fotográfica: ${z.name}`);
       });
       console.log('Bloqueo por restricción fotográfica detectado:', reasons);
-      return res.json({
-        canFly,
-        maxAllowedHeight,
-        reasons,
-        zones
-      });
+      return res.json({ canFly, maxAllowedHeight: null, reasons, zones });
     }
 
-      // Buscar zonas con prohibición absoluta en message o warning
-      const absoluteForbiddenZones = zones.filter(zone => {
-        const msg = (zone.message || '') + ' ' + (zone.warning || '');
-        return forbiddenPhrases.some(phrase => msg.includes(phrase));
+    // Prohibición absoluta (case-insensitive)
+    const absoluteForbiddenZones = restrictiveZones.filter(zone => {
+      const msg = ((zone.message || '') + ' ' + (zone.warning || '')).toLowerCase();
+      return forbiddenPhrases.some(phrase => msg.includes(phrase.toLowerCase()));
+    });
+    if (absoluteForbiddenZones.length > 0) {
+      canFly = false;
+      absoluteForbiddenZones.forEach(z => {
+        reasons.push(`Prohibido: ${z.name}`);
       });
+      console.log('Prohibición absoluta detectada:', reasons);
+      return res.json({ canFly, maxAllowedHeight: null, reasons, zones });
+    }
 
-      if (absoluteForbiddenZones.length > 0) {
-        canFly = false;
-        let maxAllowedHeight = null;
-        absoluteForbiddenZones.forEach(z => {
-          reasons.push('Prohibido: ' + z.name + ' (' + (z.layer || 'Zona') + ')');
-        });
-        console.log('Prohibición absoluta detectada:', reasons);
-        return res.json({
-          canFly,
-          maxAllowedHeight,
-          reasons,
-          zones
-        });
-      }
-
-    let allZonesAbove400ft = zones.length > 0;
+    // Análisis de alturas permitidas en los mensajes
+    let allZonesAbove400ft = true;
     let onlyHighZones = [];
-    for (const z of zones) {
+    for (const z of restrictiveZones) {
       const msgRaw = z.message || z.warning || '';
-      const msgRawUpper = msgRaw.toUpperCase();
-      // Buscar patrones de altura máxima en el mensaje
       const heightMatch = msgRaw.match(/por debajo de\s*(\d{1,4})\s*m/iu)
         || msgRaw.match(/altura máxima de\s*(\d{1,4})\s*m/iu)
         || msgRaw.match(/permitidas?[^\d]*(\d{1,4})\s*m/iu)
         || msgRaw.match(/hasta\s*(\d{1,4})\s*m/iu);
-      // Buscar patrón "Nivel inferior: XXXXft"
       const lowerLevelMatch = msgRaw.match(/Nivel inferior:\s*(\d{3,5})ft/iu);
+
       if (heightMatch) {
         const h = parseInt(heightMatch[1], 10);
         permittedHeights.push(h);
-        reasons.push(`Permitido hasta ${h}m: ${z.name} (${z.layer})`);
+        reasons.push(`Permitido hasta ${h}m: ${z.name}`);
         allZonesAbove400ft = false;
       } else if (lowerLevelMatch) {
         const ft = parseInt(lowerLevelMatch[1], 10);
@@ -239,60 +237,27 @@ app.get('/api/zones', async (req, res) => {
           allZonesAbove400ft = false;
         }
       } else {
-        // Si no hay altura, pero hay frase prohibitiva, lo anotamos como info
-        const isForbidden = forbiddenPhrases.some(phrase => msgRawUpper.includes(phrase));
-        if (isForbidden) {
-          reasons.push(`Prohibido: ${z.name} (${z.layer})`);
-          allZonesAbove400ft = false;
-        } else if (z.warning) {
-          reasons.push(`Restricción: ${z.name} (${z.layer})`);
-          allZonesAbove400ft = false;
-        }
+        // Zona sin altura explícita ni prohibición → no es libre
+        allZonesAbove400ft = false;
       }
     }
+
     let maxAllowedHeight = null;
     if (permittedHeights.length > 0) {
       canFly = true;
       maxAllowedHeight = Math.min(...permittedHeights);
-    } else if (allZonesAbove400ft && onlyHighZones.length === zones.length) {
-      // Solo hay zonas de "Nivel inferior" alto, no mostrar zonas ni razones
+    } else if (onlyHighZones.length === restrictiveZones.length) {
+      // Todas las zonas están por encima de 400ft → sin restricción práctica
       canFly = true;
       maxAllowedHeight = 120;
       reasons = ['No hay restricciones activas en la zona. Permitido hasta 120m.'];
-      return res.json({
-        canFly,
-        maxAllowedHeight,
-        reasons,
-        zones: []
-      });
-    } else if (allZonesAbove400ft && onlyHighZones.length > 0 && onlyHighZones.length === zones.length) {
-      // Fallback extra: si todas las zonas son solo de nivel alto, aunque la lógica anterior falle
-      canFly = true;
-      maxAllowedHeight = 120;
-      reasons = ['No hay restricciones activas en la zona. Permitido hasta 120m.'];
-      return res.json({
-        canFly,
-        maxAllowedHeight,
-        reasons,
-        zones: []
-      });
+      return res.json({ canFly, maxAllowedHeight, reasons, zones: [] });
     } else {
-      // ¿Hay alguna zona con restricciones o bloqueos?
-      const hasRealRestriction = zones.some(z => {
-        const msg = (z.message || '') + ' ' + (z.warning || '');
-        const isForbidden = forbiddenPhrases.some(phrase => msg.toLowerCase().includes(phrase.toLowerCase()));
-        const isPhotoBlocked = blockPhotoFlightPhrases.some(phrase => msg.toLowerCase().includes(phrase));
-        return isForbidden || isPhotoBlocked || z.prohibited || z.warning;
-      });
-      if (!hasRealRestriction) {
-        canFly = true;
-        maxAllowedHeight = 120;
-        reasons = ['No hay restricciones activas en la zona. Permitido hasta 120m.'];
-        return res.json({
-          canFly,
-          maxAllowedHeight,
-          reasons,
-          zones: []
+      // Hay zonas con tipo REQ_AUTHORIZATION u otras sin altura clara → requiere coordinación
+      canFly = false;
+      if (reasons.length === 0) {
+        restrictiveZones.forEach(z => {
+          reasons.push(`Requiere coordinación: ${z.name}`);
         });
       }
     }

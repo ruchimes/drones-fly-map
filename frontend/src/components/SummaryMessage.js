@@ -10,7 +10,7 @@ export default function SummaryMessage({ canFly, maxAllowedHeight, reasons, onCl
     zIndex: 1200,
     minWidth: 180,
     maxWidth: '90vw',
-    background: '#fff',
+    background: canFly ? '#a1dda6ff' : '#edadb6ff',
     borderRadius: 8,
     boxShadow: '0 2px 8px #0002',
     padding: 16,
@@ -54,8 +54,10 @@ export default function SummaryMessage({ canFly, maxAllowedHeight, reasons, onCl
         title="Cerrar"
       >×</button>
       <div style={{ paddingRight: 24 }}>
-        <b>¿Se puede volar?</b><br />
-        <span style={statusStyle}>{canFly ? 'SÍ' : 'NO'}</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <b>¿Se puede volar?</b>
+          <span style={{ ...statusStyle, fontSize: 22 }}>{canFly ? 'SÍ' : 'NO'}</span>
+        </div>
         {canFly && maxAllowedHeight && (
           <div style={maxHeightStyle}>
             Altura máxima permitida: {maxAllowedHeight} m
