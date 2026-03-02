@@ -1,72 +1,65 @@
 import React from 'react';
 
+// ─── Estilos ──────────────────────────────────────────────────────────────────
+
+const containerStyle = canFly => ({
+  position: 'absolute',
+  top: 60, left: 10,
+  zIndex: 1200,
+  minWidth: 180,
+  maxWidth: '90vw',
+  background: canFly ? '#a1dda6ff' : '#edadb6ff',
+  borderRadius: 8,
+  boxShadow: '0 2px 8px #0002',
+  padding: 16,
+  pointerEvents: 'auto',
+  marginRight: 10,
+});
+
+const closeBtnStyle = {
+  position: 'absolute',
+  top: 8, right: 12,
+  border: 'none',
+  background: 'none',
+  fontSize: 22,
+  cursor: 'pointer',
+  color: '#888',
+};
+
+const statusStyle = canFly => ({
+  color: canFly ? 'green' : 'red',
+  fontWeight: 'bold',
+  fontSize: 22,
+});
+
+// ─── SummaryMessage ───────────────────────────────────────────────────────────
+
 export default function SummaryMessage({ canFly, maxAllowedHeight, reasons, onClose }) {
   if (canFly === null) return null;
 
-  const containerStyle = {
-    position: 'absolute',
-    top: 60,
-    left: 10,
-    zIndex: 1200,
-    minWidth: 180,
-    maxWidth: '90vw',
-    background: canFly ? '#a1dda6ff' : '#edadb6ff',
-    borderRadius: 8,
-    boxShadow: '0 2px 8px #0002',
-    padding: 16,
-    display: 'block',
-    pointerEvents: 'auto',
-    marginRight: '10px',
-  };
-
-  const closeBtnStyle = {
-    position: 'absolute',
-    top: 8,
-    right: 12,
-    border: 'none',
-    background: 'none',
-    fontSize: 22,
-    cursor: 'pointer',
-    color: '#888',
-  };
-
-  const statusStyle = {
-    color: canFly ? 'green' : 'red',
-    fontWeight: 'bold',
-  };
-
-  const maxHeightStyle = {
-    marginTop: 8,
-    color: '#1976d2',
-    fontWeight: 'bold',
-  };
-
-  const listStyle = {
-    marginTop: 8,
-  };
-
   return (
-    <div style={containerStyle} onClick={e => e.stopPropagation()}>
+    <div style={containerStyle(canFly)} onClick={e => e.stopPropagation()}>
       <button
-        onClick={e => { e.stopPropagation(); onClose && onClose(); }}
+        onClick={e => { e.stopPropagation(); onClose?.(); }}
         style={closeBtnStyle}
         aria-label="Cerrar"
         title="Cerrar"
       >×</button>
+
       <div style={{ paddingRight: 24 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <b>¿Se puede volar?</b>
-          <span style={{ ...statusStyle, fontSize: 22 }}>{canFly ? 'SÍ' : 'NO'}</span>
+          <span style={statusStyle(canFly)}>{canFly ? 'SÍ' : 'NO'}</span>
         </div>
+
         {canFly && maxAllowedHeight && (
-          <div style={maxHeightStyle}>
+          <div style={{ marginTop: 8, color: '#1976d2', fontWeight: 'bold' }}>
             Altura máxima permitida: {maxAllowedHeight} m
           </div>
         )}
-        <ul style={listStyle}>
-          {reasons.map((r, i) => (
-            <li key={i}>{r}</li>
-          ))}
+
+        <ul style={{ marginTop: 8 }}>
+          {reasons.map((r, i) => <li key={i}>{r}</li>)}
         </ul>
       </div>
     </div>
