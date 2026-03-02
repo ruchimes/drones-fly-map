@@ -46,8 +46,12 @@ export function useZones(radius, cellClickedRef) {
 
   /** Handler para el click en el mapa (recibe latlng de Leaflet). */
   const handleMapClick = useCallback(({ lat, lng }) => {
+    const now = Date.now();
+    const diff = now - (cellClickedRef?.current || 0);
+    console.log('[ZONES] handleMapClick fired, diff=', diff, 'ms, ref=', cellClickedRef?.current);
     // Si han pasado menos de 600ms desde un click en celda/marker, ignorar
-    if (cellClickedRef?.current && (Date.now() - cellClickedRef.current < 600)) {
+    if (cellClickedRef?.current && diff < 600) {
+      console.log('[ZONES] ignorado por cellClickedRef');
       return;
     }
     setLocation({ lat, lon: lng });
