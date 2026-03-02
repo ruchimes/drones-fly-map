@@ -119,8 +119,8 @@ function HeatmapLayer({ heatmap, onCellClick, cellClickedRef }) {
             }}
             eventHandlers={onCellClick ? {
               click: e => {
-                e.originalEvent.stopPropagation(); // intento 1: cortar burbujeo nativo
-                if (cellClickedRef) cellClickedRef.current = true; // intento 2: flag para MapClickHandler
+                e.originalEvent?.stopPropagation();
+                if (cellClickedRef) cellClickedRef.current = Date.now(); // timestamp para filtrar en MapClickHandler
                 onCellClick(cell);
               },
             } : {}}

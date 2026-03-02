@@ -18,15 +18,15 @@ const zoneColor = zone => {
 // ─── MapClickHandler ──────────────────────────────────────────────────────────
 
 /** Captura clicks del mapa y los reenvía a onMapClick, sin problemas de closure stale.
- *  Ignora el click si `cellClickedRef.current` está activo (la celda ya lo procesó). */
+ *  Ignora el click si se originó en una celda del heatmap (funciona en desktop y touch). */
 function MapClickHandler({ onMapClick, cellClickedRef }) {
   const callbackRef = useRef(onMapClick);
   useEffect(() => { callbackRef.current = onMapClick; }, [onMapClick]);
   useMapEvents({
     click: e => {
-      // Si el click vino de una celda del heatmap, ignorarlo aquí
-      if (cellClickedRef?.current) {
-        cellClickedRef.current = false;
+      // cellClickedRef guarda el timestamp del último click en celda.
+      // Si han pasado menos de 600ms, es el mismo gesto táctil → ignorar.
+      if (cellClickedRef?.current && (Date.now() - cellClickedRef.current < 600)) {
         return;
       }
       callbackRef.current?.(e.latlng);
@@ -81,7 +81,7 @@ function MapView({ location, zones = [], radius = 1000, onMapClick, heatmap = nu
         <Marker
           position={[location.lat, location.lon]}
           eventHandlers={{
-            click: () => { cellClickedRef.current = true; },
+            click: () => { cellClickedRef.current = Date.now(); },
           }}
         />
       )}
