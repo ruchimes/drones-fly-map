@@ -40,6 +40,7 @@ function LoadingOverlay() {
 
 function App() {
   const [radius, setRadius] = useState(500); // metros
+  const [showLegend, setShowLegend] = useState(false);
 
   // Ref compartido: se activa cuando el usuario pincha una celda del heatmap
   // para que handleMapClick ignore el click del mapa que llega justo después
@@ -75,6 +76,7 @@ function App() {
 
   const handleAnalyze = () => {
     if (!location) return;
+    setShowLegend(true);
     fetchHeatmap(location.lat, location.lon, { radiusKm: radius / 1000, cellM: 100, concurrency: 15 });
   };
 
@@ -178,8 +180,17 @@ function App() {
         </div>
       )}
 
-      {/* Leyenda del heatmap */}
-      {heatmap && <HeatmapLegend />}
+      {/* Leyenda del heatmap con botón de cerrar */}
+      {heatmap && showLegend && (
+        <div style={{
+          position: 'absolute',
+          bottom: 204,
+          right: 14,
+          zIndex: 1200,
+        }}>
+          <HeatmapLegend onClose={() => setShowLegend(false)} />
+        </div>
+      )}
 
       {/* Panel de resultado arriba */}
       <div style={{

@@ -25,7 +25,7 @@ function cellColor(canFly, maxAllowedHeight) {
 /**
  * Leyenda de colores del heatmap.
  */
-export function HeatmapLegend() {
+export function HeatmapLegend({ onClose }) {
   const items = [
     { color: '#43a047', label: 'Libre hasta 120m' },
     { color: '#8bc34a', label: 'Libre hasta 60–119m' },
@@ -37,18 +37,23 @@ export function HeatmapLegend() {
 
   return (
     <div style={{
-      position: 'absolute',
-      bottom: 90,
-      right: 14,
       background: 'rgba(255,255,255,0.93)',
       borderRadius: 10,
       padding: '10px 14px',
-      zIndex: 1200,
       boxShadow: '0 2px 8px rgba(0,0,0,0.18)',
       minWidth: 190,
-      pointerEvents: 'none',
+      pointerEvents: 'auto',
+      position: 'relative',
     }}>
-      <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 7, color: '#333' }}>
+      {onClose && (
+        <button onClick={onClose} style={{
+          position: 'absolute', top: 6, right: 8,
+          border: 'none', background: 'none',
+          fontSize: 18, cursor: 'pointer', color: '#888',
+          lineHeight: 1, padding: 0,
+        }} aria-label="Cerrar leyenda">×</button>
+      )}
+      <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 7, color: '#333', paddingRight: onClose ? 18 : 0 }}>
         🗺️ Mapa de vuelo
       </div>
       {items.map(({ color, label }) => (
