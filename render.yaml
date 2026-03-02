@@ -1,0 +1,15 @@
+# Render — Backend (Node.js / Express)
+# Documentación: https://render.com/docs/web-services
+
+services:
+  - type: web
+    name: drones-app-backend
+    runtime: node
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000

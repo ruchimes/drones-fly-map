@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef } from 'react';
+import API_BASE from '../api';
 
 /**
  * Hook para el análisis de cuadrícula de vuelo (heatmap).
@@ -43,7 +44,7 @@ export function useHeatmap() {
     setCenter({ lat, lon });
     setProgress(null);
 
-    const url = `/api/heatmap?lat=${lat}&lon=${lon}&radiusKm=${radiusKm}&cellM=${cellM}&concurrency=${concurrency}`;
+    const url = `${API_BASE}/api/heatmap?lat=${lat}&lon=${lon}&radiusKm=${radiusKm}&cellM=${cellM}&concurrency=${concurrency}`;
     const es  = new EventSource(url);
     esRef.current = es;
 

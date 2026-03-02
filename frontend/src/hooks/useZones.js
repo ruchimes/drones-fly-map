@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import API_BASE from '../api';
 
 /**
  * Gestiona la consulta de zonas ENAIRE y el estado derivado (canFly, reasons, etc.).
@@ -16,7 +17,7 @@ export function useZones(radius) {
   const fetchZones = useCallback(async (lat, lon) => {
     setLoading(true);
     try {
-      const res  = await fetch(`/api/zones?lat=${lat}&lon=${lon}&radius=${radius}`);
+      const res  = await fetch(`${API_BASE}/api/zones?lat=${lat}&lon=${lon}&radius=${radius}`);
       const data = await res.json();
       setZones(Array.isArray(data.zones) ? data.zones : []);
       setSummary({ canFly: data.canFly, reasons: data.reasons, maxAllowedHeight: data.maxAllowedHeight });
@@ -31,7 +32,7 @@ export function useZones(radius) {
   /** Geocodifica una dirección y luego consulta zonas. */
   const fetchByAddress = useCallback(async (address) => {
     try {
-      const geoRes = await fetch(`/api/geocode?address=${encodeURIComponent(address)}`);
+      const geoRes = await fetch(`${API_BASE}/api/geocode?address=${encodeURIComponent(address)}`);
       if (!geoRes.ok) throw new Error('Geocoding failed');
       const { location: loc } = await geoRes.json();
       setLocation({ lat: loc.lat, lon: loc.lon });

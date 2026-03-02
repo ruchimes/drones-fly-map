@@ -768,4 +768,7 @@ app.get('/api/zones', async (req, res) => {
 
 // ─── Arranque ─────────────────────────────────────────────────────────────────
 
+// Endpoint de salud — Render lo usa para comprobar que el servicio está activo
+app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
+
 app.listen(PORT, () => console.log(`Backend running on port ${PORT}`));
