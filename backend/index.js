@@ -66,6 +66,18 @@ const TMA_PATTERNS = [
 /** Detecta si un mensaje contiene una altura máxima explícita (ej. "altura máxima de 60m") */
 const HEIGHT_EXPLICIT_PATTERN = /altura m[aá]xima de\s*\d{1,4}\s*m/i;
 
+/** qcodes NOTAM restrictivos (R=restricted, P=prohibited, D=danger) */
+const NOTAM_RESTRICTIVE_QCODES = /^[RPD]/i;
+/** RTCA/RTCE = zona temporalmente segregada PARA drones (no contra drones) */
+const NOTAM_DRONE_ZONE_QCODES  = /^RTC[AE]/i;
+
+/** Parsea "DD/MM/YYYY HH:mm:ss" → timestamp ms */
+const parseNotamDate = str => {
+  if (!str) return 0;
+  const [d, m, y, H, M, S] = str.match(/(\d+)/g);
+  return new Date(`${y}-${m}-${d}T${H}:${M}:${S}`).getTime();
+};
+
 /** Patrones que indican que un NOTAM prohíbe o restringe el vuelo de drones */
 const NOTAM_FORBIDDEN_PATTERNS = [
   /drone.*prohibid/i,
@@ -297,14 +309,7 @@ function analyzeFlightPermission(restrictiveZones, allZones, terrainElevation = 
   const reasons          = [];
   const permittedHeights = [];
 
-  // NOTAMs activos con prohibición explícita — prioridad máxima
-  // qcode en el servicio ya viene SIN la Q inicial: "RDCA" en vez de "QRDCA"
-  // R* = restricted area, P* = prohibited area, D* = danger area
-  // Excepción: RTCA/RTCE = área temporalmente segregada PARA drones (zona de vuelo reservada) → NO es restrictiva
-  const NOTAM_RESTRICTIVE_QCODES = /^[RPD]/i;
-  const NOTAM_DRONE_ZONE_QCODES  = /^RTC[AE]/i;  // segregated area FOR drones, no AGAINST
-
-  // Parsea "DD/MM/YYYY HH:mm:ss" → timestamp ms
+  // Parsea "DD/MM/YYYY HH:mm:ss" → timestamp ms (definida aquí como closure)
   const parseNotamDate = str => {
     if (!str) return 0;
     const [d, m, y, H, M, S] = str.match(/(\d+)/g);
@@ -377,6 +382,34 @@ function analyzeFlightPermission(restrictiveZones, allZones, terrainElevation = 
           : ''
       }`),
     );
+  }
+
+  // NOTAMs de zonas segregadas para drones (RTCA/RTCE) — informativos, no restrictivos
+  // Se muestran como aviso aunque no bloqueen el vuelo
+  const droneZoneNotams = allZones.filter(z => {
+    if (z.layer !== 'NOTAMs activos') return false;
+    const qcode = z.attributes?.qcode || '';
+    return NOTAM_DRONE_ZONE_QCODES.test(qcode);
+  });
+  if (droneZoneNotams.length > 0) {
+    droneZoneNotams.sort((a, b) =>
+      parseNotamDate(a.attributes?.itemBstr) - parseNotamDate(b.attributes?.itemBstr),
+    );
+    droneZoneNotams.forEach(z => {
+      const from = z.attributes?.itemBstr || null;
+      const to   = z.attributes?.itemCstr || null;
+      const range = from && to ? ` (desde ${from} hasta ${to})` : '';
+      const isActive = (() => {
+        const f = parseNotamDate(from);
+        const t = parseNotamDate(to);
+        return f <= now && (t === 0 || now <= t);
+      })();
+      reasons.push(
+        isActive
+          ? `ℹ️ NOTAM activo: ${z.name}${range}`
+          : `ℹ️ NOTAM próximo: ${z.name}${range}`,
+      );
+    });
   }
 
   // Bloqueo por restricción fotográfica
@@ -490,7 +523,12 @@ function analyzeFlightPermission(restrictiveZones, allZones, terrainElevation = 
     return { ...FREE_FLIGHT, reasons: ['No hay restricciones activas en la zona. Permitido hasta 120m.', ...reasons], zones: allZones };
   }
   if (permittedHeights.length > 0) {
-    return { canFly: true, maxAllowedHeight: Math.min(...permittedHeights), reasons, zones: allZones };
+    // Ordenar: "Permitido hasta Xm" primero, luego avisos NOTAM
+    const sortedReasons = [
+      ...reasons.filter(r => r.startsWith('Permitido')),
+      ...reasons.filter(r => !r.startsWith('Permitido')),
+    ];
+    return { canFly: true, maxAllowedHeight: Math.min(...permittedHeights), reasons: sortedReasons, zones: allZones };
   }
 
   // Requiere coordinación — añadir avisos NOTAM acumulados si los hay
