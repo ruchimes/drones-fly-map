@@ -36,14 +36,45 @@ export function filterRestrictiveZones(zones) {
     const identifier = z.attributes?.identifier || '';
     const msgClean   = stripHtml(z.message);
 
-    if (matchesAny(INFO_ONLY_PATTERNS, msgClean))    return false;
+    if (matchesAny(INFO_ONLY_PATTERNS, msgClean))     return false;
     if (matchesAny(INFO_ONLY_PATTERNS, z.name || '')) return false;
     if (matchesAny(INFO_ONLY_PATTERNS, identifier))   return false;
 
+    // Las zonas TMA son siempre informativas — nunca restringen ni limitan altura
     const isTma = matchesAny(TMA_PATTERNS, identifier) || matchesAny(TMA_PATTERNS, msgClean);
-    if (isTma && !HEIGHT_EXPLICIT_PATTERN.test(msgClean)) return false;
+    if (isTma) return false;
+
+    // NOTAMs RTCA/RTCE — zonas segregadas PARA drones, no restrictivas para ellos
+    if (z.layer === 'NOTAMs activos') {
+      const qcode = z.attributes?.qcode || '';
+      if (NOTAM_DRONE_ZONE_QCODES.test(qcode)) return false;
+    }
 
     return true;
+  });
+}
+
+/**
+ * Extrae zonas TMA de todas las zonas y las convierte en avisos informativos.
+ * Se añaden a reasons como ℹ️ con la altura que mencionan si la tienen.
+ */
+export function extractTmaWarnings(allZones, reasons) {
+  const tmaZones = allZones.filter(z => {
+    if (z.layer === 'NOTAMs activos') return false;
+    const identifier = z.attributes?.identifier || '';
+    const msgClean   = stripHtml(z.message);
+    return matchesAny(TMA_PATTERNS, identifier) || matchesAny(TMA_PATTERNS, msgClean);
+  });
+
+  tmaZones.forEach(z => {
+    const msgClean   = stripHtml(z.message || '');
+    const heightMatch = msgClean.match(HEIGHT_EXPLICIT_PATTERN);
+    const height      = heightMatch ? heightMatch[0].match(/\d+/)?.[0] : null;
+    const name        = z.name || z.attributes?.identifier || 'TMA';
+    reasons.push(height
+      ? `ℹ️ Zona TMA — ${name}: vuelo VLOS permitido hasta ${height}m fuera de ZGUAS`
+      : `ℹ️ Zona TMA — ${name}: consulta restricciones antes de volar`,
+    );
   });
 }
 
@@ -217,15 +248,25 @@ function analyzeHeights(restrictiveZones, terrainElevation, reasons, permittedHe
  * @param {number|null} terrainElevation
  */
 export function analyzeFlightPermission(restrictiveZones, allZones, terrainElevation = null) {
-  if (restrictiveZones.length === 0) return FREE_FLIGHT;
-
   const reasons          = [];
   const permittedHeights = [];
   const now              = Date.now();
 
-  // ── 1. NOTAMs ──
+  // ── Avisos TMA (informativos, siempre se procesan) ──
+  extractTmaWarnings(allZones, reasons);
+
+  // ── 1. NOTAMs (siempre se procesan: también añade avisos RTCA/RTCE informativos) ──
   const notamResult = analyzeNotams(restrictiveZones, allZones, now, reasons);
   if (notamResult.blocked) return { ...notamResult.result, zones: allZones };
+
+  // Sin zonas restrictivas → vuelo libre, pero con posibles avisos TMA y NOTAM
+  if (restrictiveZones.length === 0) {
+    return {
+      ...FREE_FLIGHT,
+      reasons: ['No hay restricciones activas en la zona. Permitido hasta 120m.', ...reasons],
+      zones: allZones,
+    };
+  }
 
   // ── 2. Restricción fotográfica ──
   const photoBlocked = restrictiveZones.filter(z => matchesAny(PHOTO_FLIGHT_PATTERNS, zoneText(z)));
@@ -261,7 +302,12 @@ export function analyzeFlightPermission(restrictiveZones, allZones, terrainEleva
   if (heightResult.allZonesAreHigh) {
     return {
       ...FREE_FLIGHT,
-      reasons: ['No hay restricciones activas en la zona. Permitido hasta 120m.', ...reasons],
+      reasons: [
+        'No hay restricciones activas en la zona. Permitido hasta 120m.',
+        ...reasons.filter(r => r.startsWith('⚠️')),
+        ...reasons.filter(r => r.startsWith('ℹ️')),
+        ...reasons.filter(r => !r.startsWith('⚠️') && !r.startsWith('ℹ️')),
+      ],
       zones: allZones,
     };
   }
@@ -269,7 +315,9 @@ export function analyzeFlightPermission(restrictiveZones, allZones, terrainEleva
   if (permittedHeights.length > 0) {
     const sortedReasons = [
       ...reasons.filter(r => r.startsWith('Permitido')),
-      ...reasons.filter(r => !r.startsWith('Permitido')),
+      ...reasons.filter(r => r.startsWith('⚠️')),
+      ...reasons.filter(r => r.startsWith('ℹ️')),
+      ...reasons.filter(r => !r.startsWith('Permitido') && !r.startsWith('⚠️') && !r.startsWith('ℹ️')),
     ];
     return { canFly: true, maxAllowedHeight: Math.min(...permittedHeights), reasons: sortedReasons, zones: allZones };
   }
