@@ -55,9 +55,16 @@ const PHOTO_FLIGHT_PATTERNS = [
 /** Zonas meramente informativas o de espacio aéreo superior — no restringen el vuelo de drones */
 const INFO_ONLY_PATTERNS = [
   /antes de volar compruebe si la zona.*entorno urbano/is,       // aviso entorno urbano (toda España)
-  /_TMA$/i,                                                       // TMA por identificador (ej. LECM_TMA)
-  /espacio a[eé]reo controlado\s+TMA\b/i,                        // TMA por mensaje
 ];
+
+/** Patrón secundario: zona TMA — solo es informativa si NO especifica una altura máxima */
+const TMA_PATTERNS = [
+  /_TMA$/i,                        // TMA por identificador (ej. LECM_TMA)
+  /espacio a[eé]reo controlado\s+TMA\b/i,  // TMA por mensaje
+];
+
+/** Detecta si un mensaje contiene una altura máxima explícita (ej. "altura máxima de 60m") */
+const HEIGHT_EXPLICIT_PATTERN = /altura m[aá]xima de\s*\d{1,4}\s*m/i;
 
 /** Patrones que indican que un NOTAM prohíbe o restringe el vuelo de drones */
 const NOTAM_FORBIDDEN_PATTERNS = [
@@ -293,7 +300,9 @@ function analyzeFlightPermission(restrictiveZones, allZones, terrainElevation = 
   // NOTAMs activos con prohibición explícita — prioridad máxima
   // qcode en el servicio ya viene SIN la Q inicial: "RDCA" en vez de "QRDCA"
   // R* = restricted area, P* = prohibited area, D* = danger area
+  // Excepción: RTCA/RTCE = área temporalmente segregada PARA drones (zona de vuelo reservada) → NO es restrictiva
   const NOTAM_RESTRICTIVE_QCODES = /^[RPD]/i;
+  const NOTAM_DRONE_ZONE_QCODES  = /^RTC[AE]/i;  // segregated area FOR drones, no AGAINST
 
   // Parsea "DD/MM/YYYY HH:mm:ss" → timestamp ms
   const parseNotamDate = str => {
@@ -307,6 +316,8 @@ function analyzeFlightPermission(restrictiveZones, allZones, terrainElevation = 
   const forbiddenNotams = restrictiveZones.filter(z => {
     if (z.layer !== 'NOTAMs activos') return false;
     const qcode = z.attributes?.qcode || '';
+    // RTCA/RTCE = zona segregada para uso de drones → no es restrictiva para otros drones
+    if (NOTAM_DRONE_ZONE_QCODES.test(qcode)) return false;
     return NOTAM_RESTRICTIVE_QCODES.test(qcode) || matchesAny(NOTAM_FORBIDDEN_PATTERNS, zoneText(z));
   });
 
@@ -544,10 +555,16 @@ async function analyzePoint(lat, lon, cellM = 100, precomputedElevation = undefi
   const zones = allResults.flatMap(r => r.features.map(f => normalizeFeature(f, r.layer)));
 
   const restrictiveZones = zones.filter(z => {
-    const identifier = z.attributes?.identifier || '';
-    return !matchesAny(INFO_ONLY_PATTERNS, stripHtml(z.message)) &&
-           !matchesAny(INFO_ONLY_PATTERNS, z.name || '') &&
-           !matchesAny(INFO_ONLY_PATTERNS, identifier);
+    const identifier  = z.attributes?.identifier || '';
+    const msgClean    = stripHtml(z.message);
+    // Excluir zonas puramente informativas
+    if (matchesAny(INFO_ONLY_PATTERNS, msgClean)) return false;
+    if (matchesAny(INFO_ONLY_PATTERNS, z.name || '')) return false;
+    if (matchesAny(INFO_ONLY_PATTERNS, identifier)) return false;
+    // Las zonas TMA son informativas SALVO que especifiquen una altura máxima explícita
+    const isTma = matchesAny(TMA_PATTERNS, identifier) || matchesAny(TMA_PATTERNS, msgClean);
+    if (isTma && !HEIGHT_EXPLICIT_PATTERN.test(msgClean)) return false;
+    return true;
   });
 
   const result = analyzeFlightPermission(restrictiveZones, zones, terrainElevation);
@@ -753,10 +770,14 @@ app.get('/api/zones', async (req, res) => {
     );
 
     const restrictiveZones = zones.filter(z => {
-      const identifier = z.attributes?.identifier || '';
-      return !matchesAny(INFO_ONLY_PATTERNS, stripHtml(z.message)) &&
-             !matchesAny(INFO_ONLY_PATTERNS, z.name || '') &&
-             !matchesAny(INFO_ONLY_PATTERNS, identifier);
+      const identifier  = z.attributes?.identifier || '';
+      const msgClean    = stripHtml(z.message);
+      if (matchesAny(INFO_ONLY_PATTERNS, msgClean)) return false;
+      if (matchesAny(INFO_ONLY_PATTERNS, z.name || '')) return false;
+      if (matchesAny(INFO_ONLY_PATTERNS, identifier)) return false;
+      const isTma = matchesAny(TMA_PATTERNS, identifier) || matchesAny(TMA_PATTERNS, msgClean);
+      if (isTma && !HEIGHT_EXPLICIT_PATTERN.test(msgClean)) return false;
+      return true;
     });
     console.log(
       `Zonas restrictivas: ${restrictiveZones.length} / informativas: ${zones.length - restrictiveZones.length}`,
