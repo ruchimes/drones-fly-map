@@ -12,6 +12,7 @@ import {
   NOTAM_RESTRICTIVE_QCODES,
   NOTAM_DRONE_ZONE_QCODES,
   NOTAM_FORBIDDEN_PATTERNS,
+  COORDINATION_EXCEPTION_PATTERN,
   stripHtml,
   zoneText,
   matchesAny,
@@ -279,13 +280,16 @@ export function analyzeFlightPermission(restrictiveZones, allZones, terrainEleva
     };
   }
 
-  // ── 3. Prohibición absoluta (excluye las condicionales) ──
+  // ── 3. Prohibición absoluta (excluye las condicionales y las de "coordinación requerida") ──
   const conditionalZones = restrictiveZones.filter(z =>
     CONDITIONAL_HEIGHT_PATTERN.test(stripHtml(z.message || z.warning || '')),
   );
-  const forbidden = restrictiveZones.filter(
-    z => !conditionalZones.includes(z) && matchesAny(FORBIDDEN_PATTERNS, zoneText(z)),
-  );
+  const forbidden = restrictiveZones.filter(z => {
+    if (conditionalZones.includes(z)) return false;
+    const text = zoneText(z);
+    if (COORDINATION_EXCEPTION_PATTERN.test(text)) return false;  // "no permitido excepto coordinación" → no es prohibición absoluta
+    return matchesAny(FORBIDDEN_PATTERNS, text);
+  });
   if (forbidden.length > 0) {
     return {
       canFly:           false,

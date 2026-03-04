@@ -12,12 +12,19 @@ export const FORBIDDEN_PATTERNS = [
 ];
 
 /**
+ * Excepción a FORBIDDEN: "no permitido... excepto coordinación" indica que SÍ
+ * se puede volar con coordinación previa — es coordinación requerida, no prohibición absoluta.
+ */
+export const COORDINATION_EXCEPTION_PATTERN =
+  /no\s+permitido[^.]*excepto\s+coordinaci[oó]n/i;
+
+/**
  * Detecta zonas con altura libre hasta Xm y prohibición por encima.
  * Captura: [1] límite AGL desde ref. aeródromo, [2] cota AMSL del aeródromo (opcional).
  * Ej: "Por debajo de 90m medidos desde el punto de referencia del aeródromo (442m), no es necesario coordinar"
  */
 export const CONDITIONAL_HEIGHT_PATTERN =
-  /por debajo de\s*(\d{1,4})\s*m[^(]*(?:\((\d{3,5})m\))?[^.]*no es necesario coordinar/iu;
+  /por debajo de\s*(\d{1,4})\s*m[^(]*(?:\((\d{1,5})m\))?[^.]*no es necesario coordinar/iu;
 
 /** Vuelo fotográfico / captación de datos restringido */
 export const PHOTO_FLIGHT_PATTERNS = [
