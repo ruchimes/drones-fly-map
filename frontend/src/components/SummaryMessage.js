@@ -34,6 +34,20 @@ const statusStyle = canFly => ({
 
 // ─── SummaryMessage ───────────────────────────────────────────────────────────
 
+/**
+ * Convierte **texto** en <strong>texto</strong> para los avisos NO AIP y otros reasons.
+ * El resto del texto se muestra como texto plano.
+ */
+function renderReason(text) {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return <strong key={i}>{part.slice(2, -2)}</strong>;
+    }
+    return part;
+  });
+}
+
 export default function SummaryMessage({ canFly, maxAllowedHeight, reasons, onClose }) {
   if (canFly === null) return null;
 
@@ -59,7 +73,7 @@ export default function SummaryMessage({ canFly, maxAllowedHeight, reasons, onCl
         )}
 
         <ul style={{ marginTop: 8 }}>
-          {reasons.map((r, i) => <li key={i}>{r}</li>)}
+          {reasons.map((r, i) => <li key={i}>{renderReason(r)}</li>)}
         </ul>
       </div>
     </div>

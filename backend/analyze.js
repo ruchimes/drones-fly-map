@@ -13,10 +13,8 @@ import {
   NOTAM_DRONE_ZONE_QCODES,
   NOTAM_FORBIDDEN_PATTERNS,
   COORDINATION_EXCEPTION_PATTERN,
-  stripHtml,
-  zoneText,
-  matchesAny,
-  parseNotamDate,
+  NO_AIP_PATTERN,
+  stripHtml, cleanMessage, zoneText, matchesAny, parseNotamDate,
 } from './patterns.js';
 
 export const FREE_FLIGHT = {
@@ -40,6 +38,9 @@ export function filterRestrictiveZones(zones) {
     if (matchesAny(INFO_ONLY_PATTERNS, msgClean))     return false;
     if (matchesAny(INFO_ONLY_PATTERNS, z.name || '')) return false;
     if (matchesAny(INFO_ONLY_PATTERNS, identifier))   return false;
+
+    // Datos NO AIP — sin base jurídica, se trata como aviso informativo
+    if (NO_AIP_PATTERN.test(msgClean) || NO_AIP_PATTERN.test(z.name || '')) return false;
 
     // Las zonas TMA son siempre informativas — nunca restringen ni limitan altura
     const isTma = matchesAny(TMA_PATTERNS, identifier) || matchesAny(TMA_PATTERNS, msgClean);
@@ -76,6 +77,29 @@ export function extractTmaWarnings(allZones, reasons) {
       ? `ℹ️ Zona TMA — ${name}: vuelo VLOS permitido hasta ${height}m fuera de ZGUAS`
       : `ℹ️ Zona TMA — ${name}: consulta restricciones antes de volar`,
     );
+  });
+}
+
+/**
+ * Extrae zonas NO AIP de todas las zonas y las convierte en avisos informativos.
+ * El mensaje se limpia de HTML (conservando <b> como **negrita**).
+ */
+export function extractNoAipWarnings(allZones, reasons) {
+  const noAipZones = allZones.filter(z => {
+    if (z.layer === 'NOTAMs activos') return false;
+    const msgClean = stripHtml(z.message || '');
+    return NO_AIP_PATTERN.test(msgClean) || NO_AIP_PATTERN.test(z.name || '');
+  });
+
+  noAipZones.forEach(z => {
+    const msg     = cleanMessage(z.message || '');
+    const rawName = z.name || z.attributes?.identifier || '';
+    // Intentar extraer el nombre del helipuerto/hospital del mensaje antes de "Datos NO AIP"
+    const nameFromMsg = stripHtml(z.message || '').match(
+      /seguridad operacional de\s+([^,.]+?)\s+datos\s+no\s+aip/i,
+    );
+    const name = (nameFromMsg?.[1] || rawName).trim() || 'Zona';
+    reasons.push(`⚠️ NO AIP — ${name} (sin base jurídica para sancionar): ${msg}`);
   });
 }
 
@@ -256,12 +280,19 @@ export function analyzeFlightPermission(restrictiveZones, allZones, terrainEleva
   // ── Avisos TMA (informativos, siempre se procesan) ──
   extractTmaWarnings(allZones, reasons);
 
+  // ── Avisos NO AIP (sin base jurídica, siempre informativos) ──
+  extractNoAipWarnings(allZones, reasons);
+
   // ── 1. NOTAMs (siempre se procesan: también añade avisos RTCA/RTCE informativos) ──
   const notamResult = analyzeNotams(restrictiveZones, allZones, now, reasons);
   if (notamResult.blocked) return { ...notamResult.result, zones: allZones };
 
+  // Los NOTAMs ya fueron procesados (bloqueantes activos → bloquearon; futuros → aviso ⚠️;
+  // RTCA/RTCE → aviso ℹ️). Los excluimos de las zonas a analizar para evitar falsos bloqueos.
+  const nonNotamZones = restrictiveZones.filter(z => z.layer !== 'NOTAMs activos');
+
   // Sin zonas restrictivas → vuelo libre, pero con posibles avisos TMA y NOTAM
-  if (restrictiveZones.length === 0) {
+  if (nonNotamZones.length === 0) {
     return {
       ...FREE_FLIGHT,
       reasons: ['No hay restricciones activas en la zona. Permitido hasta 120m.', ...reasons],
@@ -270,7 +301,7 @@ export function analyzeFlightPermission(restrictiveZones, allZones, terrainEleva
   }
 
   // ── 2. Restricción fotográfica ──
-  const photoBlocked = restrictiveZones.filter(z => matchesAny(PHOTO_FLIGHT_PATTERNS, zoneText(z)));
+  const photoBlocked = nonNotamZones.filter(z => matchesAny(PHOTO_FLIGHT_PATTERNS, zoneText(z)));
   if (photoBlocked.length > 0) {
     return {
       canFly:           false,
@@ -281,14 +312,31 @@ export function analyzeFlightPermission(restrictiveZones, allZones, terrainEleva
   }
 
   // ── 3. Prohibición absoluta (excluye las condicionales y las de "coordinación requerida") ──
-  const conditionalZones = restrictiveZones.filter(z =>
+  const conditionalZones = nonNotamZones.filter(z =>
     CONDITIONAL_HEIGHT_PATTERN.test(stripHtml(z.message || z.warning || '')),
   );
-  const forbidden = restrictiveZones.filter(z => {
+
+  // Zonas de coordinación requerida: "no permitido excepto coordinación" → bloquean el vuelo
+  // pero con mensaje diferente a "Prohibido" y no son prohibición absoluta
+  const coordinationZones = nonNotamZones.filter(z => {
     if (conditionalZones.includes(z)) return false;
-    const text = zoneText(z);
-    if (COORDINATION_EXCEPTION_PATTERN.test(text)) return false;  // "no permitido excepto coordinación" → no es prohibición absoluta
-    return matchesAny(FORBIDDEN_PATTERNS, text);
+    return COORDINATION_EXCEPTION_PATTERN.test(zoneText(z));
+  });
+  if (coordinationZones.length > 0) {
+    return {
+      canFly:           false,
+      maxAllowedHeight: null,
+      reasons: [
+        ...reasons,
+        ...coordinationZones.map(z => `Requiere coordinación: ${z.name}`),
+      ],
+      zones: allZones,
+    };
+  }
+
+  const forbidden = nonNotamZones.filter(z => {
+    if (conditionalZones.includes(z)) return false;
+    return matchesAny(FORBIDDEN_PATTERNS, zoneText(z));
   });
   if (forbidden.length > 0) {
     return {
@@ -300,7 +348,7 @@ export function analyzeFlightPermission(restrictiveZones, allZones, terrainEleva
   }
 
   // ── 4. Análisis de alturas ──
-  const heightResult = analyzeHeights(restrictiveZones, terrainElevation, reasons, permittedHeights);
+  const heightResult = analyzeHeights(nonNotamZones, terrainElevation, reasons, permittedHeights);
   if (heightResult.blocked) return { ...heightResult.result, zones: allZones };
 
   if (heightResult.allZonesAreHigh) {
@@ -332,9 +380,7 @@ export function analyzeFlightPermission(restrictiveZones, allZones, terrainEleva
     maxAllowedHeight: null,
     reasons: [
       ...reasons,
-      ...restrictiveZones
-        .filter(z => z.layer !== 'NOTAMs activos')
-        .map(z => `Requiere coordinación: ${z.name}`),
+      ...nonNotamZones.map(z => `Requiere coordinación: ${z.name}`),
     ],
     zones: allZones,
   };

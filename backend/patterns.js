@@ -42,6 +42,12 @@ export const INFO_ONLY_PATTERNS = [
 ];
 
 /**
+ * Zona con datos NO AIP: la información no proviene de publicaciones AIP oficiales,
+ * por lo que no tiene base jurídica para sancionar. Se trata como aviso informativo.
+ */
+export const NO_AIP_PATTERN = /datos\s+no\s+aip/i;
+
+/**
  * Zonas TMA — informativas SALVO que especifiquen una altura máxima explícita.
  * Se comprueba contra identificador y mensaje.
  */
@@ -78,6 +84,20 @@ export const NOTAM_FORBIDDEN_PATTERNS = [
 
 /** Elimina etiquetas HTML y normaliza espacios en blanco */
 export const stripHtml = str => str.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+
+/**
+ * Limpia HTML para mostrar al usuario:
+ *  - <br>, <br/> → eliminados (salto implícito en lista)
+ *  - <b>…</b>, <strong>…</strong> → **…** (negrita markdown)
+ *  - resto de tags → eliminados
+ *  - espacios múltiples → uno solo
+ */
+export const cleanMessage = str => str
+  .replace(/<br\s*\/?>/gi, '')
+  .replace(/<\/?(b|strong)[^>]*>/gi, '**')
+  .replace(/<[^>]*>/g, ' ')
+  .replace(/\s+/g, ' ')
+  .trim();
 
 /** Texto combinado (message + warning) de una zona, sin HTML y en minúsculas */
 export const zoneText = zone =>
