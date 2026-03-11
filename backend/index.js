@@ -12,6 +12,7 @@ import { getElevationLocal, getElevationBatchLocal } from './elevation.js';
 import { queryAllLayers, saveEnaireLog } from './enaire.js';
 import { filterRestrictiveZones, analyzeFlightPermission } from './analyze.js';
 import { buildGrid, analyzePoint, pLimit } from './heatmap.js';
+import { checkUrban } from './urban.js';
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
@@ -154,7 +155,7 @@ app.get('/api/heatmap', async (req, res) => {
         reasons:          c.reasons,
       })),
     };
-    const HEATMAP_LOG_PATH = path.join(__dirname, 'heatmap_log.json');
+    const HEATMAP_LOG_PATH = path.join(__dirname, 'debug_heatmap.json');
     fs.writeFileSync(HEATMAP_LOG_PATH, JSON.stringify(heatmapLog, null, 2), 'utf8');
     console.log(`[HEATMAP] Log guardado en ${HEATMAP_LOG_PATH}`);
 
@@ -184,9 +185,10 @@ app.get('/api/zones', async (req, res) => {
     : 1;
 
   try {
-    const [{ zones, allResults }, terrainElevation] = await Promise.all([
+    const [{ zones, allResults }, terrainElevation, urbanInfo] = await Promise.all([
       queryAllLayers({ lat: parseFloat(lat), lon: parseFloat(lon), radiusKm }),
       getElevation(parseFloat(lat), parseFloat(lon)),
+      checkUrban(parseFloat(lat), parseFloat(lon)),
     ]);
 
     if (terrainElevation !== null) {
@@ -194,8 +196,9 @@ app.get('/api/zones', async (req, res) => {
     } else {
       console.log('[ELEVACIÓN] No disponible (se usará lógica sin elevación)');
     }
+    console.log(`[URBAN] isUrban=${urbanInfo.isUrban} (${urbanInfo.confidence}) — ${urbanInfo.reason}`);
 
-    saveEnaireLog({ lat, lon, radius: radiusKm }, allResults);
+    saveEnaireLog({ lat, lon, radius: radiusKm, urban: { isUrban: urbanInfo.isUrban, confidence: urbanInfo.confidence, reason: urbanInfo.reason } }, allResults);
 
     console.log(`Total zonas: ${zones.length}`);
     zones.forEach(z =>
@@ -209,7 +212,7 @@ app.get('/api/zones', async (req, res) => {
 
     const result = analyzeFlightPermission(restrictiveZones, zones, terrainElevation);
     console.log('Resultado final:', { canFly: result.canFly, maxAllowedHeight: result.maxAllowedHeight, reasons: result.reasons });
-    return res.json(result);
+    return res.json({ ...result, urban: urbanInfo });
 
   } catch (err) {
     console.error('Error en /api/zones:', err);

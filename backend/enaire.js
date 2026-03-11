@@ -10,7 +10,7 @@ import { ENAIRE_LAYERS } from './enaireLayers.js';
 import { stripHtml } from './patterns.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const LOG_PATH  = path.join(__dirname, 'enaire_zones_log.json');
+const LOG_PATH  = path.join(__dirname, 'debug_enaire_zones.json');
 
 const ARCGIS_BASE =
   'https://servais.enaire.es/insignia/rest/services/NSF_SRV/SRV_UAS_ZG_V1/MapServer';

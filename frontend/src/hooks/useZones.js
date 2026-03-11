@@ -9,7 +9,7 @@ export function useZones(radius, cellClickedRef) {
   const [location, setLocation]   = useState(null);
   const [zones, setZones]         = useState([]);
   const [loading, setLoading]     = useState(false);
-  const [summary, setSummary]     = useState(null); // { canFly, reasons, maxAllowedHeight }
+  const [summary, setSummary]     = useState(null); // { canFly, reasons, maxAllowedHeight, urban }
 
   const clearSummary = useCallback(() => setSummary(null), []);
 
@@ -20,7 +20,7 @@ export function useZones(radius, cellClickedRef) {
       const res  = await fetch(`${API_BASE}/api/zones?lat=${lat}&lon=${lon}&radius=${radius}`);
       const data = await res.json();
       setZones(Array.isArray(data.zones) ? data.zones : []);
-      setSummary({ canFly: data.canFly, reasons: data.reasons, maxAllowedHeight: data.maxAllowedHeight });
+      setSummary({ canFly: data.canFly, reasons: data.reasons, maxAllowedHeight: data.maxAllowedHeight, urban: data.urban ?? null });
     } catch {
       setZones([]);
       setSummary({ canFly: null, reasons: ['Error al cargar zonas'], maxAllowedHeight: null });

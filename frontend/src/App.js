@@ -1,5 +1,5 @@
 
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 
 import MapView from './components/MapView';
 import SearchBar from './components/SearchBar';
@@ -15,6 +15,15 @@ import './bottom-bar.css';
 function App() {
   const [radius, setRadius]       = useState(500); // metros
   const [showLegend, setShowLegend] = useState(false);
+  const [urbanEnabled, setUrbanEnabled] = useState(
+    () => localStorage.getItem('urbanEnabled') !== 'false'
+  );
+
+  const toggleUrban = () => setUrbanEnabled(prev => {
+    const next = !prev;
+    localStorage.setItem('urbanEnabled', String(next));
+    return next;
+  });
 
   // Ref compartido: se activa cuando el usuario pincha una celda del heatmap
   // para que handleMapClick ignore el click del mapa que llega justo después
@@ -109,6 +118,9 @@ function App() {
           canFly={summary?.canFly ?? null}
           reasons={summary?.reasons ?? []}
           maxAllowedHeight={summary?.maxAllowedHeight ?? null}
+          urban={summary?.urban ?? null}
+          urbanEnabled={urbanEnabled}
+          onToggleUrban={toggleUrban}
           onClose={clearSummary}
         />
       </div>

@@ -22,6 +22,9 @@ build/
 # Misc
 *.tgz
 
-./frontend/zones_debug_2.json
 # Tiles SRTM (4.6 GB — regenerar con: npm run download-srtm)
 backend/srtm_cache/
+
+# Archivos de debug/log generados en tiempo de ejecución
+backend/debug_*.json
+backend/debug_*.har

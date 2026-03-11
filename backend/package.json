@@ -6,7 +6,11 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "download-srtm": "node download_srtm.js"
+    "download-srtm": "node download_srtm.js",
+    "test": "node --test tests/analyze.test.js tests/urban.test.js",
+    "test:unit": "SKIP_INTEGRATION=1 node --test tests/analyze.test.js tests/urban.test.js",
+    "test:urban": "node --test tests/urban.test.js",
+    "test:urban:unit": "SKIP_INTEGRATION=1 node --test tests/urban.test.js"
   },
   "dependencies": {
     "axios": "^1.6.0",
