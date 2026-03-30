@@ -39,6 +39,10 @@ export const PHOTO_FLIGHT_PATTERNS = [
 /** Zonas meramente informativas — no restringen el vuelo de drones */
 export const INFO_ONLY_PATTERNS = [
   /antes de volar compruebe si la zona.*entorno urbano/is,  // aviso entorno urbano (toda España)
+  // Zonas militares de entrenamiento de alta cota (vuelos supersónicos, LER/CTA militares)
+  // que requieren coordinar con TWR militar — no aplican a drones UAS en categoría abierta
+  /área expresamente designada para vuelos supersónicos/i,
+  /area specifically designated for supersonic flights/i,
 ];
 
 /**

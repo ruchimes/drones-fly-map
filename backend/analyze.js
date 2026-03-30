@@ -27,8 +27,43 @@ export const FREE_FLIGHT = {
 // ─── Filtro de zonas restrictivas ─────────────────────────────────────────────
 
 /**
- * Filtra las zonas que realmente restringen el vuelo, descartando las informativas.
- * Las TMA solo se incluyen si tienen una altura máxima explícita en el mensaje.
+ * Parsea el nivel inferior de una zona desde el campo `lower` o desde el texto del mensaje.
+ * Devuelve metros AMSL, o null si no se puede determinar.
+ * Se usa para descartar zonas que empiezan muy por encima de la altitud máxima de un dron.
+ */
+function parseLowerLimitM(zone) {
+  const FT_TO_M = 0.3048;
+
+  // 1. Intentar desde el campo `lower` estructurado (ej. "7468m AMSL", "0m AMSL", "0M AGL")
+  const lowerStr = zone.lower || '';
+  const lowerAmsl = lowerStr.match(/^(\d+(?:\.\d+)?)\s*m\s+AMSL/i);
+  if (lowerAmsl) {
+    const val = parseFloat(lowerAmsl[1]);
+    if (val > 0) return val; // 0m AMSL no es fiable (puede ser dato por defecto)
+  }
+
+  // 2. Intentar desde el mensaje: "Nivel inferior: 5000ft ALT" / "Nivel inferior: 1524m"
+  const msg = stripHtml(zone.message || '');
+  const ftMatch = msg.match(/nivel\s+inferior[:\s]+(\d+(?:\.\d+)?)\s*ft/i);
+  if (ftMatch) return parseFloat(ftMatch[1]) * FT_TO_M;
+
+  const mMatch = msg.match(/nivel\s+inferior[:\s]+(\d+(?:\.\d+)?)\s*m/i);
+  if (mMatch) return parseFloat(mMatch[1]);
+
+  // 3. FL: "Nivel inferior: FL245" → convertir a metros (1 FL = 100ft = 30.48m)
+  const flMatch = msg.match(/nivel\s+inferior[:\s]+FL\s*(\d+)/i);
+  if (flMatch) return parseFloat(flMatch[1]) * 100 * FT_TO_M;
+
+  return null;
+}
+
+// Altitud AMSL máxima práctica de un dron en España:
+// terreno más alto ~3480m (Teide) + 120m AGL = ~3600m. Usamos 3700m con margen.
+const MAX_DRONE_AMSL_M = 3700;
+
+/**
+ * Filtra las zonas que realmente restringen el vuelo, descartando las informativas
+ * y las que empiezan por encima de la altitud máxima alcanzable por un dron.
  */
 export function filterRestrictiveZones(zones) {
   return zones.filter(z => {
@@ -50,6 +85,14 @@ export function filterRestrictiveZones(zones) {
     if (z.layer === 'NOTAMs activos') {
       const qcode = z.attributes?.qcode || '';
       if (NOTAM_DRONE_ZONE_QCODES.test(qcode)) return false;
+    }
+
+    // Zonas que empiezan por encima de la altitud máxima alcanzable por un dron:
+    // el nivel inferior está en FL o ft AMSL muy por encima de los 120m AGL.
+    const lowerM = parseLowerLimitM(z);
+    if (lowerM !== null && lowerM > MAX_DRONE_AMSL_M) {
+      console.log(`[ANALYZE] Zona ignorada por nivel inferior demasiado alto: ${z.name || identifier} (lower ~${Math.round(lowerM)}m AMSL)`);
+      return false;
     }
 
     return true;

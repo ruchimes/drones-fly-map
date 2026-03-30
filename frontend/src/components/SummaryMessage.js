@@ -120,18 +120,20 @@ export default function SummaryMessage({ canFly, maxAllowedHeight, reasons, urba
 
         <UrbanBadge urban={canFly ? urban : null} enabled={urbanEnabled} />
 
-        {/* Toggle detección urbana */}
-        <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#555' }}>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', userSelect: 'none' }}>
-            <input
-              type="checkbox"
-              checked={!!urbanEnabled}
-              onChange={onToggleUrban}
-              style={{ cursor: 'pointer', accentColor: '#856404', width: 14, height: 14 }}
-            />
-            Detección de zona urbana
-          </label>
-        </div>
+        {/* Toggle detección urbana — solo visible cuando el vuelo está permitido */}
+        {canFly && (
+          <div style={{ marginTop: 10, display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#555' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', userSelect: 'none' }}>
+              <input
+                type="checkbox"
+                checked={!!urbanEnabled}
+                onChange={onToggleUrban}
+                style={{ cursor: 'pointer', accentColor: '#856404', width: 14, height: 14 }}
+              />
+              Detección de zona urbana
+            </label>
+          </div>
+        )}
 
         {reasons?.length > 0 && (
           <ul style={{ marginTop: 8 }}>

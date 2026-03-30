@@ -60,12 +60,20 @@ const makeNotam = ({ name, qcode, from, to, text = '' }) => makeZone({
 });
 
 // Fechas para test: pasado, presente y futuro
-const NOW      = new Date('2026-03-04T12:00:00').getTime();
-const PAST     = '01/01/2026 00:00:00';
-const FUTURE1  = '10/03/2026 09:00:00';
-const FUTURE2  = '15/03/2026 18:00:00';
-const ACTIVE_FROM = '01/03/2026 00:00:00';
-const ACTIVE_TO   = '31/03/2026 23:59:00';
+// Se calculan dinámicamente para que los tests no caduquen con el tiempo
+const NOW      = Date.now();
+const fmtDate  = d => d.toLocaleDateString('es-ES', { day:'2-digit', month:'2-digit', year:'numeric' }).replace(/\//g, '/');
+const fmtDT    = d => `${fmtDate(d)} ${d.toTimeString().slice(0,8)}`;
+const past     = new Date(NOW - 60 * 24 * 3600 * 1000);   // hace 60 días
+const future1  = new Date(NOW + 40 * 24 * 3600 * 1000);   // dentro de 40 días
+const future2  = new Date(NOW + 45 * 24 * 3600 * 1000);   // dentro de 45 días
+const active   = new Date(NOW -  5 * 24 * 3600 * 1000);   // hace 5 días (activo)
+const activeEnd= new Date(NOW + 20 * 24 * 3600 * 1000);   // activo hasta dentro de 20 días
+const PAST        = fmtDT(past);
+const FUTURE1     = fmtDT(future1);
+const FUTURE2     = fmtDT(future2);
+const ACTIVE_FROM = fmtDT(active);
+const ACTIVE_TO   = fmtDT(activeEnd);
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
