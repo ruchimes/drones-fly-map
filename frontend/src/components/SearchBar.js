@@ -83,12 +83,11 @@ const buttonStyle = (loading, color) => ({
  *   hasLocation      — boolean: hay un punto seleccionado
  *
  * Flujo:
- *   1. [Análisis de terreno] → carga historial en el mapa
- *                              + aparece [Analizar ubicación actual]
- *   2. [Analizar ubicación actual] → lanza análisis y guarda
- *   3. Mientras analiza → spinner
- *   4. Con heatmap visible → [Limpiar mapa]
- *                            + [Analizar ubicación actual] si historyMode activo
+ *   1. [🛰️ Análisis de terreno]   → carga historial en el mapa
+ *                                    + aparece [🗺️ Analizar ubicación actual]
+ *   2. [🗺️ Analizar ubicación actual] → lanza análisis, guarda y muestra historial completo
+ *   3. Mientras analiza            → spinner
+ *   4. Con heatmap visible         → [🗺️ Analizar ubicación actual] + [🙈 Ocultar análisis]
  */
 function SearchBar({
   radius, setRadius, fetchByAddress,
@@ -147,7 +146,7 @@ function SearchBar({
           onClick={() => { onClearHeatmap(); setHistoryMode(false); }}
           style={buttonStyle(false, 'linear-gradient(90deg,#546e7a 60%,#90a4ae 100%)')}
         >
-          🙈 Ocultar análisis
+          Ocultar análisis
         </button>
       </div>
     );

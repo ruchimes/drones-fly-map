@@ -1,5 +1,5 @@
 
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef } from 'react';
 
 import MapView from './components/MapView';
 import SearchBar from './components/SearchBar';
@@ -60,7 +60,7 @@ function App() {
   } = useHeatmap();
 
   // ── Historial de análisis ─────────────────────────────────────────────────
-  const { hasSavedAnalyses, saveAnalysis, getMergedCells } = useAnalysisHistory();
+  const { saveAnalysis, getMergedCells } = useAnalysisHistory();
 
   const handleAnalyze = () => {
     if (!location) return;

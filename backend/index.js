@@ -2,9 +2,6 @@
  * index.js — Servidor Express. Solo rutas y arranque.
  * La lógica está dividida en: patterns.js, enaire.js, analyze.js, heatmap.js
  */
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
 import express from 'express';
 import axios from 'axios';
 import cors from 'cors';
@@ -17,7 +14,6 @@ import { getHistory, addAnalysis, clearHistory, mergeAllCells } from './history.
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
-const __dirname    = path.dirname(fileURLToPath(import.meta.url));
 const PORT         = process.env.PORT || 4000;
 const RADIUS_MIN_M = 100;
 const RADIUS_MAX_M = 1000;
@@ -42,6 +38,11 @@ async function getElevationBatch(coords) {
 const app = express();
 app.use(cors());
 app.use(express.json({ limit: '10mb' })); // necesario para recibir el body con las celdas
+
+// ─── GET /api/health ──────────────────────────────────────────────────────────
+// Render lo usa para comprobar que el servicio está activo.
+
+app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 
 // ─── GET /api/geocode ─────────────────────────────────────────────────────────
 
@@ -140,27 +141,6 @@ app.get('/api/heatmap', async (req, res) => {
     const rows = Math.max(...cells.map(c => c.rowIdx)) + 1;
     const cols = Math.max(...cells.map(c => c.colIdx)) + 1;
 
-    // ── Log detallado a disco ──
-    const heatmapLog = {
-      timestamp: new Date().toISOString(),
-      query: { lat, lon, radiusKm, cellM },
-      grid: { rows, cols, total },
-      cells: cells.map(c => ({
-        rowIdx:           c.rowIdx,
-        colIdx:           c.colIdx,
-        lat:              c.lat,
-        lon:              c.lon,
-        canFly:           c.canFly,
-        maxAllowedHeight: c.maxAllowedHeight,
-        terrainElevation: c.terrainElevation,
-        zoneNames:        c.zoneNames,
-        reasons:          c.reasons,
-      })),
-    };
-    const HEATMAP_LOG_PATH = path.join(__dirname, 'debug_heatmap.json');
-    fs.writeFileSync(HEATMAP_LOG_PATH, JSON.stringify(heatmapLog, null, 2), 'utf8');
-    console.log(`[HEATMAP] Log guardado en ${HEATMAP_LOG_PATH}`);
-
     console.log(`[HEATMAP] Completado. ${rows}×${cols} grid.`);
     send('result', { cellM, radiusKm, rows, cols, cells });
     res.end();
@@ -221,11 +201,6 @@ app.get('/api/zones', async (req, res) => {
     res.status(500).json({ error: 'ENAIRE query failed', details: err.message });
   }
 });
-
-// ─── Arranque ─────────────────────────────────────────────────────────────────
-
-// Endpoint de salud — Render lo usa para comprobar que el servicio está activo
-app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
 
 // ─── GET /api/history ─────────────────────────────────────────────────────────
 // Devuelve el historial completo (todas las entradas con sus celdas).

@@ -3,36 +3,47 @@
  */
 
 import { ENAIRE_LAYERS }       from './enaireLayers.js';
-import { getElevationLocal }   from './elevation.js';
 import { queryEnaireLayer, queryNotamLayer, normalizeFeature } from './enaire.js';
 import { filterRestrictiveZones, analyzeFlightPermission }     from './analyze.js';
 
-// ─── Elevación ────────────────────────────────────────────────────────────────
-
-async function getElevation(lat, lon) {
-  try { return await getElevationLocal(lat, lon); }
-  catch { return null; }
-}
-
-// ─── Grid ─────────────────────────────────────────────────────────────────────
+// Latitud de referencia fija para calcular stepLon.
+// Usar una constante garantiza que la rejilla global sea idéntica
+// independientemente del centro de cada análisis.
+// 40.0° cubre bien la Península; Canarias (~28°) tiene error <3% en lon → aceptable.
+const GRID_REF_LAT = 40.0;
 
 /**
  * Genera coordenadas centrales de una rejilla de celdas de `cellM` metros
- * que cubre el área de `radiusKm` km alrededor de (lat, lon).
+ * usando una cuadrícula GLOBAL FIJA anclada en (0, 0) con pasos constantes.
+ *
+ * Tanto stepLat como stepLon son constantes (no dependen del centro del
+ * análisis), por lo que dos análisis solapados producen exactamente las
+ * mismas coordenadas de celda → sin solapamiento visual ni en el historial.
  */
 export function buildGrid(lat, lon, radiusKm, cellM = 100) {
   const cellKm  = cellM / 1000;
+  const stepLat = cellKm / 111;
+  const stepLon = cellKm / (111 * Math.cos((GRID_REF_LAT * Math.PI) / 180));
+
+  // Límites de la zona a cubrir
   const halfLat = radiusKm / 111;
-  const halfLon = radiusKm / (111 * Math.cos((lat * Math.PI) / 180));
-  const stepLat = cellKm  / 111;
-  const stepLon = cellKm  / (111 * Math.cos((lat * Math.PI) / 180));
+  const halfLon = radiusKm / (111 * Math.cos((GRID_REF_LAT * Math.PI) / 180));
+
+  const minLat = lat - halfLat;
+  const maxLat = lat + halfLat;
+  const minLon = lon - halfLon;
+  const maxLon = lon + halfLon;
+
+  // Primer centro de celda alineado a la rejilla global
+  const startLat = Math.ceil(minLat / stepLat) * stepLat;
+  const startLon = Math.ceil(minLon / stepLon) * stepLon;
 
   const cells = [];
   let row = 0;
-  for (let dlat = halfLat - stepLat / 2; dlat > -halfLat; dlat -= stepLat, row++) {
+  for (let clat = startLat; clat < maxLat; clat += stepLat, row++) {
     let col = 0;
-    for (let dlon = -halfLon + stepLon / 2; dlon < halfLon; dlon += stepLon, col++) {
-      cells.push({ lat: lat + dlat, lon: lon + dlon, rowIdx: row, colIdx: col });
+    for (let clon = startLon; clon < maxLon; clon += stepLon, col++) {
+      cells.push({ lat: clat, lon: clon, rowIdx: row, colIdx: col });
     }
   }
   return cells;

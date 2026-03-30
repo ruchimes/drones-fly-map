@@ -8,24 +8,22 @@ import API_BASE from '../api';
  *   heatmap        — { cellM, rows, cols, cells } | null
  *   heatmapLoading — boolean
  *   heatmapError   — string | null
- *   heatmapCenter  — { lat, lon } | null
  *   progress       — { done, total } | null  (actualizado en tiempo real via SSE)
  *   fetchHeatmap(lat, lon, options) — lanza la consulta
  *   clearHeatmap() — limpia el resultado
+ *   loadHeatmapFromCells(cells) — carga un heatmap desde datos locales (historial)
  */
 export function useHeatmap() {
-  const [heatmap, setHeatmap]       = useState(null);
+  const [heatmap, setHeatmap]        = useState(null);
   const [heatmapLoading, setLoading] = useState(false);
-  const [heatmapError, setError]    = useState(null);
-  const [heatmapCenter, setCenter]  = useState(null);
-  const [progress, setProgress]     = useState(null); // { phase, done, total }
-  const esRef                       = useRef(null);   // EventSource activo
+  const [heatmapError, setError]     = useState(null);
+  const [progress, setProgress]      = useState(null); // { phase, done, total }
+  const esRef                        = useRef(null);   // EventSource activo
 
   const clearHeatmap = useCallback(() => {
     esRef.current?.close();
     setHeatmap(null);
     setError(null);
-    setCenter(null);
     setProgress(null);
   }, []);
 
@@ -41,7 +39,6 @@ export function useHeatmap() {
     setLoading(true);
     setError(null);
     setHeatmap(null);
-    setCenter({ lat, lon });
     setProgress(null);
 
     const url = `${API_BASE}/api/heatmap?lat=${lat}&lon=${lon}&radiusKm=${radiusKm}&cellM=${cellM}&concurrency=${concurrency}`;
@@ -74,24 +71,25 @@ export function useHeatmap() {
     });
   }, []);
 
+  /**
+   * Carga un heatmap sintético desde un array de celdas (p.ej. historial).
+   * No hace petición al servidor — los datos vienen del historial local.
+   */
+  const loadHeatmapFromCells = useCallback((cells) => {
+    esRef.current?.close();
+    setHeatmap({ cells, cellM: 100, fromHistory: true });
+    setLoading(false);
+    setError(null);
+    setProgress(null);
+  }, []);
+
   return {
     heatmap,
     heatmapLoading,
     heatmapError,
-    heatmapCenter,
     progress,
     fetchHeatmap,
     clearHeatmap,
-    /**
-     * Carga un heatmap sintético desde un array de celdas (p.ej. historial).
-     * @param {Array} cells
-     */
-    loadHeatmapFromCells: useCallback((cells) => {
-      esRef.current?.close();
-      setHeatmap({ cells, cellM: 100, fromHistory: true });
-      setLoading(false);
-      setError(null);
-      setProgress(null);
-    }, []),
+    loadHeatmapFromCells,
   };
 }

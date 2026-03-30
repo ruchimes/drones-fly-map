@@ -83,9 +83,7 @@ export function useAnalysisHistory() {
 
   return {
     hasSavedAnalyses: entryCount > 0,
-    entryCount,
     saveAnalysis,
-    clearHistory,
     getMergedCells,
   };
 }

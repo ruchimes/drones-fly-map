@@ -7,7 +7,7 @@
  * Entrada:
  *   { id, timestamp, center: { lat, lon }, radius, cellM, cells: [...] }
  *
- * Una "cell" tiene al menos: { lat, lon, canFly, score, maxAllowedHeight?, reasons? }
+ * Una "cell" tiene al menos: { lat, lon, canFly, maxAllowedHeight, terrainElevation, reasons, zoneNames }
  */
 
 import fs   from 'fs';
@@ -42,14 +42,15 @@ function writeHistory(history) {
 
 /**
  * Combina las celdas de todos los análisis en un único array flat.
- * Si una celda (misma lat/lon redondeada a 5 decimales) aparece en varios
- * análisis, se conserva la del análisis más reciente.
+ * Como la grid es global y fija, dos análisis en zonas solapadas generan
+ * exactamente las mismas coordenadas de celda → basta redondear a 6 decimales
+ * (~0.1m) para identificar duplicados. Se conserva la celda más reciente.
  */
 export function mergeAllCells(history) {
   const map = new Map();
   for (const entry of history) {
     for (const cell of entry.cells ?? []) {
-      const key = `${cell.lat.toFixed(5)},${cell.lon.toFixed(5)}`;
+      const key = `${cell.lat.toFixed(6)},${cell.lon.toFixed(6)}`;
       map.set(key, cell);
     }
   }

@@ -72,6 +72,9 @@ export function HeatmapLegend({ onClose }) {
 
 // ─── HeatmapLayer ─────────────────────────────────────────────────────────────
 
+// Misma latitud de referencia que usa buildGrid en el backend
+const GRID_REF_LAT = 40.0;
+
 /**
  * Renderiza la capa de celdas del heatmap sobre el mapa Leaflet.
  *
@@ -80,15 +83,12 @@ export function HeatmapLegend({ onClose }) {
  *   onCellClick  — (cell) => void  (opcional)
  */
 function HeatmapLayer({ heatmap, onCellClick, cellClickedRef }) {
-  // Calcular tamaño de cada celda en grados
+  // Tamaño de celda en grados usando la misma referencia fija que el backend
   const { cellDegLat, cellDegLon } = useMemo(() => {
     if (!heatmap?.cells?.length) return { cellDegLat: 0, cellDegLon: 0 };
-
-    const cellKm    = heatmap.cellM / 1000;
-    // Usamos la latitud media de la rejilla para la conversión lon
-    const avgLat    = heatmap.cells.reduce((s, c) => s + c.lat, 0) / heatmap.cells.length;
-    const degLat    = cellKm / 111;
-    const degLon    = cellKm / (111 * Math.cos((avgLat * Math.PI) / 180));
+    const cellKm = heatmap.cellM / 1000;
+    const degLat = cellKm / 111;
+    const degLon = cellKm / (111 * Math.cos((GRID_REF_LAT * Math.PI) / 180));
     return { cellDegLat: degLat, cellDegLon: degLon };
   }, [heatmap]);
 
@@ -99,7 +99,7 @@ function HeatmapLayer({ heatmap, onCellClick, cellClickedRef }) {
 
   return (
     <>
-      {heatmap.cells.map((cell, i) => {
+      {heatmap.cells.map((cell) => {
         const { fill, stroke } = cellColor(cell.canFly, cell.maxAllowedHeight);
         const bounds = [
           [cell.lat - half_lat, cell.lon - half_lon],
@@ -112,9 +112,13 @@ function HeatmapLayer({ heatmap, onCellClick, cellClickedRef }) {
             ? `✅ Libre hasta ${cell.maxAllowedHeight ?? 120}m`
             : '❓ Sin datos';
 
+        // Key por posición → React destruye y recrea el rectángulo si cambia la celda,
+        // evitando que se acumulen capas solapadas de análisis distintos
+        const key = `${cell.lat.toFixed(6)},${cell.lon.toFixed(6)}`;
+
         return (
           <Rectangle
-            key={i}
+            key={key}
             bounds={bounds}
             pathOptions={{
               color:       stroke,
