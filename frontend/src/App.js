@@ -62,7 +62,7 @@ function App() {
   // ── Historial de análisis ─────────────────────────────────────────────────
   const { saveAnalysis, getMergedCells } = useAnalysisHistory();
 
-  const handleAnalyze = () => {
+  const handleAnalyze = useCallback(() => {
     if (!location) return;
     setShowLegend(true);
     fetchHeatmap(location.lat, location.lon, {
@@ -84,7 +84,7 @@ function App() {
         }
       },
     });
-  };
+  }, [location, radius, fetchHeatmap, saveAnalysis, getMergedCells, loadHeatmapFromCells]);
 
   // Carga el heatmap con la unión de todos los análisis previos
   const handleShowHistory = useCallback(async () => {

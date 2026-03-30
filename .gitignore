@@ -28,3 +28,7 @@ backend/srtm_cache/
 # Archivos de debug/log generados en tiempo de ejecución
 backend/debug_*.json
 backend/debug_*.har
+backend/urban_test2.mjs
+
+# Capturas de debug del frontend
+frontend/*_debug.json

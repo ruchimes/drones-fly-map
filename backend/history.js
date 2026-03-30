@@ -1,50 +1,56 @@
 /**
- * history.js — Persistencia de análisis de cuadrícula en disco.
+ * history.js — Persistencia de análisis de cuadrícula en MongoDB Atlas.
  *
- * Guarda cada análisis en analysis_history.json dentro del directorio del backend.
- * Formato del fichero: array de entradas, de más antiguo a más reciente.
+ * Requiere la variable de entorno MONGODB_URI para conectar.
  *
- * Entrada:
- *   { id, timestamp, center: { lat, lon }, radius, cellM, cells: [...] }
- *
- * Una "cell" tiene al menos: { lat, lon, canFly, maxAllowedHeight, terrainElevation, reasons, zoneNames }
+ * Colección: analyses
+ * Documento: { id, timestamp, center: { lat, lon }, radius, cellM, cells: [...] }
  */
 
-import fs   from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import { MongoClient } from 'mongodb';
 
-const __dirname      = path.dirname(fileURLToPath(import.meta.url));
-const HISTORY_PATH   = path.join(__dirname, 'analysis_history.json');
-const MAX_ENTRIES    = 200; // límite para que el fichero no crezca indefinidamente
+const MAX_ENTRIES = 200;
+const DB_NAME     = 'drones';
+const COLLECTION  = 'analyses';
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Cliente MongoDB (singleton) ─────────────────────────────────────────────
 
-function readHistory() {
-  try {
-    if (!fs.existsSync(HISTORY_PATH)) return [];
-    const raw = fs.readFileSync(HISTORY_PATH, 'utf8');
-    return JSON.parse(raw);
-  } catch (e) {
-    console.warn('[HISTORY] Error leyendo historial:', e.message);
-    return [];
+let _client = null;
+let _col    = null;
+
+async function getCollection() {
+  if (_col) return _col;
+
+  const MONGO_URI = process.env.MONGODB_URI;
+  if (!MONGO_URI) {
+    throw new Error('[HISTORY] MONGODB_URI no está definida. Configura la variable de entorno.');
   }
-}
 
-function writeHistory(history) {
-  try {
-    fs.writeFileSync(HISTORY_PATH, JSON.stringify(history, null, 2), 'utf8');
-  } catch (e) {
-    console.error('[HISTORY] Error escribiendo historial:', e.message);
-    throw e;
-  }
+  _client = new MongoClient(MONGO_URI, {
+    tls: true,
+    tlsAllowInvalidCertificates: false,
+    serverSelectionTimeoutMS: 10000,
+    family: 4, // forzar IPv4 — evita rechazo TLS por IPv6 en Atlas M0
+  });
+  await _client.connect();
+  _col = _client.db(DB_NAME).collection(COLLECTION);
+  console.log('[HISTORY] Conectado a MongoDB Atlas');
+  return _col;
 }
 
 /**
+ * Conecta a MongoDB al arrancar el servidor (eager connect).
+ */
+export async function connectDB() {
+  await getCollection();
+}
+
+// ─── mergeAllCells ────────────────────────────────────────────────────────────
+
+/**
  * Combina las celdas de todos los análisis en un único array flat.
- * Como la grid es global y fija, dos análisis en zonas solapadas generan
- * exactamente las mismas coordenadas de celda → basta redondear a 6 decimales
- * (~0.1m) para identificar duplicados. Se conserva la celda más reciente.
+ * Como la grid es global y fija, basta redondear a 6 decimales para deduplicar.
+ * Se conserva la celda más reciente.
  */
 export function mergeAllCells(history) {
   const map = new Map();
@@ -60,19 +66,21 @@ export function mergeAllCells(history) {
 // ─── API ──────────────────────────────────────────────────────────────────────
 
 /**
- * Devuelve todo el historial.
+ * Devuelve todo el historial (array de entradas, de más antiguo a más reciente).
  */
-export function getHistory() {
-  return readHistory();
+export async function getHistory() {
+  const col = await getCollection();
+  return col.find({}, { projection: { _id: 0 } })
+    .sort({ id: 1 })
+    .toArray();
 }
 
 /**
- * Añade un análisis al historial y lo persiste en disco.
- * @param {{ center: {lat,lon}, radius: number, cellM: number, cells: Array }} analysis
- * @returns {{ id: number, timestamp: string }} entry guardada (sin cells para ahorrar ancho de banda)
+ * Añade un análisis al historial.
+ * @param {{ center, radius, cellM, cells }} analysis
+ * @returns {{ id, timestamp }}
  */
-export function addAnalysis(analysis) {
-  const history = readHistory();
+export async function addAnalysis(analysis) {
   const entry = {
     id:        Date.now(),
     timestamp: new Date().toISOString(),
@@ -82,17 +90,28 @@ export function addAnalysis(analysis) {
     cells:     analysis.cells,
   };
 
-  // Limitar tamaño: si supera MAX_ENTRIES eliminamos las más antiguas
-  const updated = [...history, entry].slice(-MAX_ENTRIES);
-  writeHistory(updated);
-  console.log(`[HISTORY] Guardado análisis #${entry.id} (${entry.cells?.length ?? 0} celdas). Total entradas: ${updated.length}`);
+  const col = await getCollection();
+  await col.insertOne({ ...entry });
+
+  // Mantener límite MAX_ENTRIES: borrar los más antiguos si se supera
+  const total = await col.countDocuments();
+  if (total > MAX_ENTRIES) {
+    const oldest = await col.find({}, { projection: { id: 1 } })
+      .sort({ id: 1 })
+      .limit(total - MAX_ENTRIES)
+      .toArray();
+    await col.deleteMany({ id: { $in: oldest.map(d => d.id) } });
+  }
+
+  console.log(`[HISTORY] Guardado análisis #${entry.id} (${entry.cells?.length ?? 0} celdas) en MongoDB`);
   return { id: entry.id, timestamp: entry.timestamp };
 }
 
 /**
  * Elimina todo el historial.
  */
-export function clearHistory() {
-  writeHistory([]);
-  console.log('[HISTORY] Historial borrado.');
+export async function clearHistory() {
+  const col = await getCollection();
+  await col.deleteMany({});
+  console.log('[HISTORY] Historial borrado en MongoDB');
 }

@@ -117,7 +117,7 @@ function SearchBar({
   const analyzeBtn = (
     <button
       type="button"
-      onClick={hasLocation ? () => { onAnalyze(); } : undefined}
+      onClick={hasLocation ? onAnalyze : undefined}
       disabled={!hasLocation}
       title={hasLocation ? 'Analizar la ubicación seleccionada' : 'Selecciona un punto en el mapa primero'}
       style={buttonStyle(!hasLocation, 'linear-gradient(90deg,#1565c0 60%,#42a5f5 100%)')}

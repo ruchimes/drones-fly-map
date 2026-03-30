@@ -2,6 +2,7 @@
  * index.js — Servidor Express. Solo rutas y arranque.
  * La lógica está dividida en: patterns.js, enaire.js, analyze.js, heatmap.js
  */
+import './env.js';
 import express from 'express';
 import axios from 'axios';
 import cors from 'cors';
@@ -10,7 +11,7 @@ import { queryAllLayers, saveEnaireLog } from './enaire.js';
 import { filterRestrictiveZones, analyzeFlightPermission } from './analyze.js';
 import { buildGrid, analyzePoint, pLimit } from './heatmap.js';
 import { checkUrban } from './urban.js';
-import { getHistory, addAnalysis, clearHistory, mergeAllCells } from './history.js';
+import { getHistory, addAnalysis, clearHistory, mergeAllCells, connectDB } from './history.js';
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
@@ -205,9 +206,9 @@ app.get('/api/zones', async (req, res) => {
 // ─── GET /api/history ─────────────────────────────────────────────────────────
 // Devuelve el historial completo (todas las entradas con sus celdas).
 
-app.get('/api/history', (_req, res) => {
+app.get('/api/history', async (_req, res) => {
   try {
-    const history = getHistory();
+    const history = await getHistory();
     res.json({ history });
   } catch (err) {
     res.status(500).json({ error: 'Error leyendo historial', details: err.message });
@@ -217,9 +218,9 @@ app.get('/api/history', (_req, res) => {
 // ─── GET /api/history/merged ──────────────────────────────────────────────────
 // Devuelve todas las celdas de todos los análisis deduplicadas (para el heatmap unificado).
 
-app.get('/api/history/merged', (_req, res) => {
+app.get('/api/history/merged', async (_req, res) => {
   try {
-    const history = getHistory();
+    const history = await getHistory();
     const cells   = mergeAllCells(history);
     res.json({ cells, totalAnalyses: history.length });
   } catch (err) {
@@ -231,12 +232,12 @@ app.get('/api/history/merged', (_req, res) => {
 // Guarda un nuevo análisis.
 // Body: { center: {lat, lon}, radius, cellM, cells: [...] }
 
-app.post('/api/history', (req, res) => {
+app.post('/api/history', async (req, res) => {
   try {
     const { center, radius, cellM, cells } = req.body;
     if (!cells?.length) return res.status(400).json({ error: 'cells requerido' });
     if (!center?.lat || !center?.lon) return res.status(400).json({ error: 'center requerido' });
-    const saved = addAnalysis({ center, radius, cellM, cells });
+    const saved = await addAnalysis({ center, radius, cellM, cells });
     res.status(201).json(saved);
   } catch (err) {
     res.status(500).json({ error: 'Error guardando análisis', details: err.message });
@@ -246,9 +247,9 @@ app.post('/api/history', (req, res) => {
 // ─── DELETE /api/history ──────────────────────────────────────────────────────
 // Borra todo el historial.
 
-app.delete('/api/history', (_req, res) => {
+app.delete('/api/history', async (_req, res) => {
   try {
-    clearHistory();
+    await clearHistory();
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: 'Error borrando historial', details: err.message });
