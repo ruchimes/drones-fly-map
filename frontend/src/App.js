@@ -9,6 +9,7 @@ import HeatmapProgress from './components/HeatmapProgress';
 import { HeatmapLegend } from './components/HeatmapLayer';
 import { useZones } from './hooks/useZones';
 import { useHeatmap } from './hooks/useHeatmap';
+import { useAnalysisHistory } from './hooks/useAnalysisHistory';
 import './leaflet-fix.css';
 import './bottom-bar.css';
 
@@ -55,13 +56,43 @@ function App() {
     progress,
     fetchHeatmap,
     clearHeatmap,
+    loadHeatmapFromCells,
   } = useHeatmap();
+
+  // ── Historial de análisis ─────────────────────────────────────────────────
+  const { hasSavedAnalyses, saveAnalysis, getMergedCells } = useAnalysisHistory();
 
   const handleAnalyze = () => {
     if (!location) return;
     setShowLegend(true);
-    fetchHeatmap(location.lat, location.lon, { radiusKm: radius / 1000, cellM: 100, concurrency: 15 });
+    fetchHeatmap(location.lat, location.lon, {
+      radiusKm: radius / 1000,
+      cellM: 100,
+      concurrency: 15,
+      onResult: async (data) => {
+        // 1. Guarda el nuevo análisis en el backend
+        await saveAnalysis({
+          center: { lat: location.lat, lon: location.lon },
+          radius,
+          cellM: data.cellM ?? 100,
+          cells: data.cells,
+        });
+        // 2. Carga el historial completo deduplicado (nuevo + todos los anteriores)
+        const allCells = await getMergedCells();
+        if (allCells.length) {
+          loadHeatmapFromCells(allCells);
+        }
+      },
+    });
   };
+
+  // Carga el heatmap con la unión de todos los análisis previos
+  const handleShowHistory = useCallback(async () => {
+    const allCells = await getMergedCells();
+    if (!allCells.length) return;
+    setShowLegend(true);
+    loadHeatmapFromCells(allCells);
+  }, [getMergedCells, loadHeatmapFromCells]);
 
   return (
     <div style={{ height: '100vh', width: '100vw', position: 'relative' }}>
@@ -92,6 +123,7 @@ function App() {
             heatmapError={heatmapError}
             onAnalyze={handleAnalyze}
             onClearHeatmap={clearHeatmap}
+            onShowHistory={handleShowHistory}
             hasLocation={!!location}
           />
         </div>

@@ -13,6 +13,7 @@ import { queryAllLayers, saveEnaireLog } from './enaire.js';
 import { filterRestrictiveZones, analyzeFlightPermission } from './analyze.js';
 import { buildGrid, analyzePoint, pLimit } from './heatmap.js';
 import { checkUrban } from './urban.js';
+import { getHistory, addAnalysis, clearHistory, mergeAllCells } from './history.js';
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
@@ -40,6 +41,7 @@ async function getElevationBatch(coords) {
 
 const app = express();
 app.use(cors());
+app.use(express.json({ limit: '10mb' })); // necesario para recibir el body con las celdas
 
 // ─── GET /api/geocode ─────────────────────────────────────────────────────────
 
@@ -224,5 +226,58 @@ app.get('/api/zones', async (req, res) => {
 
 // Endpoint de salud — Render lo usa para comprobar que el servicio está activo
 app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
+
+// ─── GET /api/history ─────────────────────────────────────────────────────────
+// Devuelve el historial completo (todas las entradas con sus celdas).
+
+app.get('/api/history', (_req, res) => {
+  try {
+    const history = getHistory();
+    res.json({ history });
+  } catch (err) {
+    res.status(500).json({ error: 'Error leyendo historial', details: err.message });
+  }
+});
+
+// ─── GET /api/history/merged ──────────────────────────────────────────────────
+// Devuelve todas las celdas de todos los análisis deduplicadas (para el heatmap unificado).
+
+app.get('/api/history/merged', (_req, res) => {
+  try {
+    const history = getHistory();
+    const cells   = mergeAllCells(history);
+    res.json({ cells, totalAnalyses: history.length });
+  } catch (err) {
+    res.status(500).json({ error: 'Error leyendo historial', details: err.message });
+  }
+});
+
+// ─── POST /api/history ────────────────────────────────────────────────────────
+// Guarda un nuevo análisis.
+// Body: { center: {lat, lon}, radius, cellM, cells: [...] }
+
+app.post('/api/history', (req, res) => {
+  try {
+    const { center, radius, cellM, cells } = req.body;
+    if (!cells?.length) return res.status(400).json({ error: 'cells requerido' });
+    if (!center?.lat || !center?.lon) return res.status(400).json({ error: 'center requerido' });
+    const saved = addAnalysis({ center, radius, cellM, cells });
+    res.status(201).json(saved);
+  } catch (err) {
+    res.status(500).json({ error: 'Error guardando análisis', details: err.message });
+  }
+});
+
+// ─── DELETE /api/history ──────────────────────────────────────────────────────
+// Borra todo el historial.
+
+app.delete('/api/history', (_req, res) => {
+  try {
+    clearHistory();
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Error borrando historial', details: err.message });
+  }
+});
 
 app.listen(PORT, () => console.log(`Backend running on port ${PORT}`));

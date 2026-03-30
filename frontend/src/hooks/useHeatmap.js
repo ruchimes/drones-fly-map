@@ -59,6 +59,10 @@ export function useHeatmap() {
       setProgress({ done: data.cells.length, total: data.cells.length });
       setLoading(false);
       es.close();
+      // Notifica al caller con las celdas recibidas para que pueda guardarlas
+      if (typeof options.onResult === 'function') {
+        options.onResult(data);
+      }
     });
 
     es.addEventListener('error', e => {
@@ -78,5 +82,16 @@ export function useHeatmap() {
     progress,
     fetchHeatmap,
     clearHeatmap,
+    /**
+     * Carga un heatmap sintético desde un array de celdas (p.ej. historial).
+     * @param {Array} cells
+     */
+    loadHeatmapFromCells: useCallback((cells) => {
+      esRef.current?.close();
+      setHeatmap({ cells, cellM: 100, fromHistory: true });
+      setLoading(false);
+      setError(null);
+      setProgress(null);
+    }, []),
   };
 }
