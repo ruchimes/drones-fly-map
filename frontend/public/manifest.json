@@ -4,7 +4,7 @@
   "description": "Consulta zonas de vuelo de drones en España (ENAIRE/AESA)",
   "start_url": "/",
   "display": "standalone",
-  "orientation": "any",
+  "orientation": "natural",
   "background_color": "#ffffff",
   "theme_color": "#1976d2",
   "lang": "es",

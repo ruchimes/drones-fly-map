@@ -14,9 +14,14 @@ const styles = {
     alignItems: 'center',
     gap: 14,
   },
+  searchWrapper: {
+    position: 'relative',
+    display: 'inline-flex',
+    alignItems: 'center',
+  },
   input: {
     width: 220,
-    padding: '8px 14px',
+    padding: '8px 36px 8px 14px',
     border: '1.5px solid #c0c4cc',
     borderRadius: 14,
     background: 'rgba(245,245,247,0.85)',
@@ -24,6 +29,21 @@ const styles = {
     fontSize: 15,
     outline: 'none',
     boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+  },
+  searchIcon: {
+    position: 'absolute',
+    right: 10,
+    top: '50%',
+    transform: 'translateY(-50%)',
+    background: 'none',
+    border: 'none',
+    padding: 0,
+    cursor: 'pointer',
+    fontSize: 16,
+    lineHeight: 1,
+    display: 'flex',
+    alignItems: 'center',
+    color: '#888',
   },
   label: {
     fontSize: 14,
@@ -168,16 +188,23 @@ function SearchBar({
 
   return (
     <form className="search-responsive-form" onSubmit={handleSearch} style={styles.form}>
-      <input
-        type="text"
-        value={address}
-        onChange={e => setAddress(e.target.value)}
-        placeholder="Introduce una dirección..."
-        style={styles.input}
-      />
-      <button type="submit" disabled={loading} style={buttonStyle(loading)}>
-        {loading ? 'Buscando...' : 'Buscar'}
-      </button>
+      <div style={styles.searchWrapper}>
+        <input
+          type="text"
+          value={address}
+          onChange={e => setAddress(e.target.value)}
+          placeholder="Introduce una dirección..."
+          style={styles.input}
+        />
+        <button
+          type="submit"
+          disabled={loading}
+          title="Buscar"
+          style={styles.searchIcon}
+        >
+          {loading ? '⏳' : '🔍'}
+        </button>
+      </div>
       <label style={styles.label}>
         Radio:
         <input
