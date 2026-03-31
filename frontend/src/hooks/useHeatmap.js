@@ -53,7 +53,7 @@ export function useHeatmap() {
     es.addEventListener('result', e => {
       const data = JSON.parse(e.data);
       setHeatmap(data);
-      setProgress({ done: data.cells.length, total: data.cells.length });
+      setProgress({ done: data.cells.length, total: data.cells.length, fromCache: !!data.fromCache });
       setLoading(false);
       es.close();
       // Notifica al caller con las celdas recibidas para que pueda guardarlas

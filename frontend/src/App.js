@@ -70,14 +70,16 @@ function App() {
       cellM: 100,
       concurrency: 15,
       onResult: async (data) => {
-        // 1. Guarda el nuevo análisis en el backend
-        await saveAnalysis({
-          center: { lat: location.lat, lon: location.lon },
-          radius,
-          cellM: data.cellM ?? 100,
-          cells: data.cells,
-        });
-        // 2. Carga el historial completo deduplicado (nuevo + todos los anteriores)
+        // Solo guardar si hay celdas realmente nuevas (no todo era caché)
+        if (!data.fromCache && data.newCount !== 0) {
+          await saveAnalysis({
+            center: { lat: location.lat, lon: location.lon },
+            radius,
+            cellM: data.cellM ?? 100,
+            cells: data.cells,
+          });
+        }
+        // Cargar el historial completo deduplicado para pintar el mapa
         const allCells = await getMergedCells();
         if (allCells.length) {
           loadHeatmapFromCells(allCells);

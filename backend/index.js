@@ -88,8 +88,27 @@ app.get('/api/heatmap', async (req, res) => {
   const concurrency = Math.min(30,  Math.max(1,   parseInt(req.query.concurrency  || 15,  10)));
 
   const grid = buildGrid(lat, lon, radiusKm, cellM);
-  const total = grid.length;
-  console.log(`[HEATMAP] ${total} celdas (radio ${radiusKm}km, celda ${cellM}m, concurrencia ${concurrency})`);
+
+  // ── Cargar celdas ya analizadas desde el historial (MongoDB) ──────────────
+  let knownCellsMap = new Map();
+  try {
+    const history = await getHistory();
+    for (const entry of history) {
+      for (const c of entry.cells ?? []) {
+        const key = `${c.lat.toFixed(6)},${c.lon.toFixed(6)}`;
+        knownCellsMap.set(key, c);
+      }
+    }
+  } catch (e) {
+    console.warn('[HEATMAP] No se pudo cargar historial para caché:', e.message);
+  }
+
+  // Separar celdas nuevas de celdas ya conocidas
+  const newGrid   = grid.filter(c => !knownCellsMap.has(`${c.lat.toFixed(6)},${c.lon.toFixed(6)}`));
+  const skipCount = grid.length - newGrid.length;
+  const total     = newGrid.length;
+
+  console.log(`[HEATMAP] ${grid.length} celdas totales — ${skipCount} ya analizadas, ${total} nuevas (radio ${radiusKm}km, celda ${cellM}m)`);
 
   // ── Cabeceras SSE ──
   res.setHeader('Content-Type',  'text/event-stream');
@@ -100,25 +119,36 @@ app.get('/api/heatmap', async (req, res) => {
   const send = (event, data) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 
   try {
-    // ── Elevaciones en batch (una sola petición para toda la grid) ──
-    console.log(`[HEATMAP] Consultando elevaciones batch para ${total} celdas…`);
+    // Si todas las celdas ya estaban analizadas, devolver resultado inmediatamente
+    if (total === 0) {
+      const knownCells = grid.map(c => knownCellsMap.get(`${c.lat.toFixed(6)},${c.lon.toFixed(6)}`));
+      const rows = Math.max(...knownCells.map(c => c.rowIdx)) + 1;
+      const cols = Math.max(...knownCells.map(c => c.colIdx)) + 1;
+      console.log('[HEATMAP] Todas las celdas ya estaban analizadas — devolviendo caché.');
+      send('result', { cellM, radiusKm, rows, cols, cells: knownCells, fromCache: true });
+      res.end();
+      return;
+    }
+
+    // ── Elevaciones en batch solo para las celdas nuevas ──
+    console.log(`[HEATMAP] Consultando elevaciones batch para ${total} celdas nuevas…`);
     send('progress', { phase: 'elevaciones', done: 0, total });
     let elevations;
     try {
-      elevations = await getElevationBatch(grid.map(c => ({ lat: c.lat, lon: c.lon })));
+      elevations = await getElevationBatch(newGrid.map(c => ({ lat: c.lat, lon: c.lon })));
     } catch (elevErr) {
-      console.warn(`[HEATMAP] Error en elevaciones batch: ${elevErr.message}. Usando null para todas las celdas.`);
+      console.warn(`[HEATMAP] Error en elevaciones batch: ${elevErr.message}. Usando null.`);
       elevations = new Array(total).fill(null);
     }
     const elevNull = elevations.filter(e => e === null).length;
     console.log(`[HEATMAP] Elevaciones obtenidas: ${total - elevNull}/${total} (${elevNull} nulas)`);
 
     let done = 0;
-    const cells = new Array(total);
+    const newCells = new Array(total);
 
-    const tasks = grid.map((cell, i) => async () => {
+    const tasks = newGrid.map((cell, i) => async () => {
       const result = await analyzePoint(cell.lat, cell.lon, cellM, elevations[i]);
-      cells[i] = {
+      newCells[i] = {
         lat:              cell.lat,
         lon:              cell.lon,
         rowIdx:           cell.rowIdx,
@@ -130,7 +160,6 @@ app.get('/api/heatmap', async (req, res) => {
         zoneNames:        result.zoneNames,
       };
       done++;
-      // Enviar progreso cada celda (el cliente lo pinta en tiempo real)
       send('progress', { done, total });
       if (done % 20 === 0 || done === total) {
         console.log(`[HEATMAP] Progreso: ${done}/${total}`);
@@ -139,11 +168,20 @@ app.get('/api/heatmap', async (req, res) => {
 
     await pLimit(tasks, concurrency);
 
-    const rows = Math.max(...cells.map(c => c.rowIdx)) + 1;
-    const cols = Math.max(...cells.map(c => c.colIdx)) + 1;
+    // Construir mapa de nuevas celdas para lookup rápido
+    const newCellsMap = new Map(newCells.map(c => [`${c.lat.toFixed(6)},${c.lon.toFixed(6)}`, c]));
 
-    console.log(`[HEATMAP] Completado. ${rows}×${cols} grid.`);
-    send('result', { cellM, radiusKm, rows, cols, cells });
+    // Combinar: para cada celda de la grid, usar la nueva o la del caché
+    const allCells = grid.map(c => {
+      const key = `${c.lat.toFixed(6)},${c.lon.toFixed(6)}`;
+      return knownCellsMap.get(key) ?? newCellsMap.get(key);
+    });
+
+    const rows = Math.max(...allCells.map(c => c.rowIdx)) + 1;
+    const cols = Math.max(...allCells.map(c => c.colIdx)) + 1;
+
+    console.log(`[HEATMAP] Completado. ${rows}×${cols} grid. Nuevas: ${total}, Caché: ${skipCount}`);
+    send('result', { cellM, radiusKm, rows, cols, cells: allCells, newCount: total, cachedCount: skipCount });
     res.end();
 
   } catch (err) {
