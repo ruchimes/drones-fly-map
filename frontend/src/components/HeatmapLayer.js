@@ -6,15 +6,17 @@ import { Rectangle, Tooltip } from 'react-leaflet';
 /**
  * Devuelve el color de relleno de una celda según su estado de vuelo.
  *
+ *  fetchError=true                       → naranja oscuro (error al analizar — reintentar)
  *  canFly=true, maxAllowedHeight >= 120  → verde oscuro  (libre hasta 120m)
  *  canFly=true, maxAllowedHeight >= 60   → verde claro   (libre hasta Xm)
  *  canFly=true, maxAllowedHeight > 0     → amarillo      (límite de altura bajo)
  *  canFly=false                          → rojo          (prohibido)
  *  canFly=null                           → gris          (sin datos)
  */
-function cellColor(canFly, maxAllowedHeight) {
+function cellColor(canFly, maxAllowedHeight, fetchError) {
+  if (fetchError)                         return { fill: '#ef6c00', stroke: '#bf360c' };
   if (canFly === null || canFly === undefined) return { fill: '#9e9e9e', stroke: '#757575' };
-  if (!canFly)                                return { fill: '#f44336', stroke: '#c62828' };
+  if (!canFly)                            return { fill: '#f44336', stroke: '#c62828' };
   const h = maxAllowedHeight ?? 120;
   if (h >= 120)  return { fill: '#43a047', stroke: '#2e7d32' };
   if (h >= 60)   return { fill: '#8bc34a', stroke: '#558b2f' };
@@ -32,6 +34,7 @@ export function HeatmapLegend({ onClose }) {
     { color: '#ffee58', label: 'Libre hasta 30–59m' },
     { color: '#ff9800', label: 'Libre hasta <30m' },
     { color: '#f44336', label: 'Prohibido / restringido' },
+    { color: '#ef6c00', label: 'Error al analizar (reintentar)' },
     { color: '#9e9e9e', label: 'Sin datos' },
   ];
 
@@ -100,17 +103,19 @@ function HeatmapLayer({ heatmap, onCellClick, cellClickedRef }) {
   return (
     <>
       {heatmap.cells.map((cell) => {
-        const { fill, stroke } = cellColor(cell.canFly, cell.maxAllowedHeight);
+        const { fill, stroke } = cellColor(cell.canFly, cell.maxAllowedHeight, cell.fetchError);
         const bounds = [
           [cell.lat - half_lat, cell.lon - half_lon],
           [cell.lat + half_lat, cell.lon + half_lon],
         ];
 
-        const label = cell.canFly === false
-          ? '🚫 Prohibido / restringido'
-          : cell.canFly === true
-            ? `✅ Libre hasta ${cell.maxAllowedHeight ?? 120}m`
-            : '❓ Sin datos';
+        const label = cell.fetchError
+          ? '⚠️ Error al analizar (vuelve a analizar esta zona)'
+          : cell.canFly === false
+            ? '🚫 Prohibido / restringido'
+            : cell.canFly === true
+              ? `✅ Libre hasta ${cell.maxAllowedHeight ?? 120}m`
+              : '❓ Sin datos';
 
         // Key por posición → React destruye y recrea el rectángulo si cambia la celda,
         // evitando que se acumulen capas solapadas de análisis distintos

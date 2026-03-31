@@ -68,7 +68,11 @@ export async function analyzePoint(lat, lon, cellM = 100, precomputedElevation =
     elevationPromise,
   ]);
 
-  const zones           = [...layerResults, notamResult].flatMap(r => r.features.map(f => normalizeFeature(f, r.layer)));
+  // Si alguna capa falló, la celda no es fiable — marcarla como error
+  const allResults = [...layerResults, notamResult];
+  const hadFetchError = allResults.some(r => r.fetchError);
+
+  const zones            = allResults.flatMap(r => r.features.map(f => normalizeFeature(f, r.layer)));
   const restrictiveZones = filterRestrictiveZones(zones);
   const result           = analyzeFlightPermission(restrictiveZones, zones, terrainElevation);
 
@@ -78,6 +82,7 @@ export async function analyzePoint(lat, lon, cellM = 100, precomputedElevation =
     terrainElevation,
     reasons:          result.reasons || [],
     zoneNames:        restrictiveZones.map(z => z.name || z.attributes?.identifier || '?'),
+    fetchError:       hadFetchError,
   };
 }
 

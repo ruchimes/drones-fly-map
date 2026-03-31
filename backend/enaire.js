@@ -119,7 +119,7 @@ export async function queryEnaireLayer(layer, { lat, lon, radiusKm }) {
     return { layer: layer.name, features };
   } catch (err) {
     console.warn(`[ENAIRE] Error en capa ${layer.name} (${layer.id}):`, err.message);
-    return { layer: layer.name, features: [] };
+    return { layer: layer.name, features: [], fetchError: true };
   }
 }
 
@@ -151,7 +151,7 @@ export async function queryNotamLayer({ lat, lon, radiusKm }) {
     return { layer: 'NOTAMs activos', features };
   } catch (err) {
     console.warn('[NOTAM] Error consultando NOTAMs:', err.message);
-    return { layer: 'NOTAMs activos', features: [] };
+    return { layer: 'NOTAMs activos', features: [], fetchError: true };
   }
 }
 

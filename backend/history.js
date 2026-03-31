@@ -115,3 +115,41 @@ export async function clearHistory() {
   await col.deleteMany({});
   console.log('[HISTORY] Historial borrado en MongoDB');
 }
+
+/**
+ * Elimina las celdas de un área (bbox) de todos los documentos del historial.
+ * Si un documento queda sin celdas tras el filtrado, se elimina el documento entero.
+ *
+ * @param {{ minLat, maxLat, minLon, maxLon }} bbox
+ * @returns {{ docsModified, docsDeleted, cellsRemoved }}
+ */
+export async function clearCellsInArea({ minLat, maxLat, minLon, maxLon }) {
+  const col  = await getCollection();
+  const docs = await col.find({}).toArray();
+
+  let docsModified = 0;
+  let docsDeleted  = 0;
+  let cellsRemoved = 0;
+
+  for (const doc of docs) {
+    const before = doc.cells?.length ?? 0;
+    const filtered = (doc.cells ?? []).filter(c =>
+      !(c.lat >= minLat && c.lat <= maxLat && c.lon >= minLon && c.lon <= maxLon)
+    );
+    const removed = before - filtered.length;
+    if (removed === 0) continue;
+
+    cellsRemoved += removed;
+
+    if (filtered.length === 0) {
+      await col.deleteOne({ _id: doc._id });
+      docsDeleted++;
+    } else {
+      await col.updateOne({ _id: doc._id }, { $set: { cells: filtered } });
+      docsModified++;
+    }
+  }
+
+  console.log(`[HISTORY] Área limpiada: ${cellsRemoved} celdas eliminadas (${docsModified} docs modificados, ${docsDeleted} docs borrados)`);
+  return { docsModified, docsDeleted, cellsRemoved };
+}

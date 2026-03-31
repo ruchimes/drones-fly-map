@@ -11,7 +11,7 @@ import { queryAllLayers, saveEnaireLog } from './enaire.js';
 import { filterRestrictiveZones, analyzeFlightPermission } from './analyze.js';
 import { buildGrid, analyzePoint, pLimit } from './heatmap.js';
 import { checkUrban } from './urban.js';
-import { getHistory, addAnalysis, clearHistory, mergeAllCells, connectDB } from './history.js';
+import { getHistory, addAnalysis, clearHistory, clearCellsInArea, mergeAllCells, connectDB } from './history.js';
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 
@@ -158,6 +158,7 @@ app.get('/api/heatmap', async (req, res) => {
         terrainElevation: result.terrainElevation,
         reasons:          result.reasons,
         zoneNames:        result.zoneNames,
+        fetchError:       result.fetchError || false,
       };
       done++;
       send('progress', { done, total });
@@ -177,11 +178,16 @@ app.get('/api/heatmap', async (req, res) => {
       return knownCellsMap.get(key) ?? newCellsMap.get(key);
     });
 
+    const errorCount = newCells.filter(c => c.fetchError).length;
+    if (errorCount > 0) {
+      console.warn(`[HEATMAP] ${errorCount} celdas con error de ENAIRE — no se guardarán en historial`);
+    }
+
     const rows = Math.max(...allCells.map(c => c.rowIdx)) + 1;
     const cols = Math.max(...allCells.map(c => c.colIdx)) + 1;
 
-    console.log(`[HEATMAP] Completado. ${rows}×${cols} grid. Nuevas: ${total}, Caché: ${skipCount}`);
-    send('result', { cellM, radiusKm, rows, cols, cells: allCells, newCount: total, cachedCount: skipCount });
+    console.log(`[HEATMAP] Completado. ${rows}×${cols} grid. Nuevas: ${total}, Caché: ${skipCount}, Errores: ${errorCount}`);
+    send('result', { cellM, radiusKm, rows, cols, cells: allCells, newCount: total, cachedCount: skipCount, errorCount });
     res.end();
 
   } catch (err) {
@@ -291,6 +297,33 @@ app.delete('/api/history', async (_req, res) => {
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: 'Error borrando historial', details: err.message });
+  }
+});
+
+// ─── DELETE /api/history/area ─────────────────────────────────────────────────
+// Borra las celdas de un área circular (lat, lon, radiusKm) de todos los análisis.
+// Query params: lat, lon, radiusKm (por defecto 2km)
+
+app.delete('/api/history/area', async (req, res) => {
+  const lat     = parseFloat(req.query.lat);
+  const lon     = parseFloat(req.query.lon);
+  const radiusKm = parseFloat(req.query.radiusKm ?? 2);
+
+  if (isNaN(lat) || isNaN(lon)) {
+    return res.status(400).json({ error: 'lat y lon son requeridos' });
+  }
+
+  // Construir bbox a partir del radio
+  const dLat = radiusKm / 111;
+  const dLon = radiusKm / (111 * Math.cos((lat * Math.PI) / 180));
+  const bbox = { minLat: lat - dLat, maxLat: lat + dLat, minLon: lon - dLon, maxLon: lon + dLon };
+
+  try {
+    const result = await clearCellsInArea(bbox);
+    console.log(`[DELETE /api/history/area] lat=${lat} lon=${lon} radio=${radiusKm}km →`, result);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(500).json({ error: 'Error borrando celdas del área', details: err.message });
   }
 });
 

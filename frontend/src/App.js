@@ -70,13 +70,14 @@ function App() {
       cellM: 100,
       concurrency: 15,
       onResult: async (data) => {
-        // Solo guardar si hay celdas realmente nuevas (no todo era caché)
-        if (!data.fromCache && data.newCount !== 0) {
+        // Solo guardar celdas válidas (sin fetchError) y solo si hay celdas nuevas
+        const validCells = (data.cells ?? []).filter(c => !c.fetchError);
+        if (!data.fromCache && data.newCount !== 0 && validCells.length > 0) {
           await saveAnalysis({
             center: { lat: location.lat, lon: location.lon },
             radius,
             cellM: data.cellM ?? 100,
-            cells: data.cells,
+            cells: validCells,
           });
         }
         // Cargar el historial completo deduplicado para pintar el mapa
