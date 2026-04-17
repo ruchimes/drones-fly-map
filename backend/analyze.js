@@ -30,19 +30,34 @@ export const FREE_FLIGHT = {
  * Parsea el nivel inferior de una zona desde el campo `lower` o desde el texto del mensaje.
  * Devuelve metros AMSL, o null si no se puede determinar.
  * Se usa para descartar zonas que empiezan muy por encima de la altitud máxima de un dron.
+ *
+ * El campo `lower` del nuevo servicio ENAIRE tiene formato: "0M AGL", "500M AMSL", "1524FT AMSL".
+ * Las zonas AGL siempre empiezan desde tierra → nunca se descartan → null.
+ * Las zonas AMSL con valor alto (> MAX_DRONE_AMSL_M) sí se descartan.
  */
 function parseLowerLimitM(zone) {
   const FT_TO_M = 0.3048;
 
-  // 1. Intentar desde el campo `lower` estructurado (ej. "7468m AMSL", "0m AMSL", "0M AGL")
-  const lowerStr = zone.lower || '';
-  const lowerAmsl = lowerStr.match(/^(\d+(?:\.\d+)?)\s*m\s+AMSL/i);
-  if (lowerAmsl) {
-    const val = parseFloat(lowerAmsl[1]);
-    if (val > 0) return val; // 0m AMSL no es fiable (puede ser dato por defecto)
+  // 1. Usar el campo `lower` estructurado que viene de normalizeFeature
+  //    Formatos posibles: "0M AGL", "500M AMSL", "1524FT AMSL", "FL150" (raramente)
+  const lowerStr = (zone.lower || '').trim();
+  if (lowerStr) {
+    // AGL: siempre parte del suelo, nunca supera MAX_DRONE_AMSL_M → no filtrar
+    if (/\bAGL\b/i.test(lowerStr)) return null;
+
+    // AMSL en metros
+    const amslM = lowerStr.match(/^(\d+(?:\.\d+)?)\s*M\s+AMSL/i);
+    if (amslM) {
+      const val = parseFloat(amslM[1]);
+      return val > 0 ? val : null; // 0M AMSL = dato por defecto, ignorar
+    }
+
+    // AMSL en pies
+    const amslFt = lowerStr.match(/^(\d+(?:\.\d+)?)\s*FT\s+AMSL/i);
+    if (amslFt) return parseFloat(amslFt[1]) * FT_TO_M;
   }
 
-  // 2. Intentar desde el mensaje: "Nivel inferior: 5000ft ALT" / "Nivel inferior: 1524m"
+  // 2. Fallback: parsear desde el texto del mensaje (servicio antiguo / datos legacy)
   const msg = stripHtml(zone.message || '');
   const ftMatch = msg.match(/nivel\s+inferior[:\s]+(\d+(?:\.\d+)?)\s*ft/i);
   if (ftMatch) return parseFloat(ftMatch[1]) * FT_TO_M;

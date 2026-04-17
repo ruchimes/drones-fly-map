@@ -12,9 +12,6 @@ import { stripHtml } from './patterns.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const LOG_PATH  = path.join(__dirname, 'debug_enaire_zones.json');
 
-const ARCGIS_BASE =
-  'https://servais.enaire.es/insignia/rest/services/NSF_SRV/SRV_UAS_ZG_V1/MapServer';
-
 const NOTAM_BASE =
   'https://servais.enaire.es/insignias/rest/services/NOTAM/NOTAM_UAS_APP_V3/MapServer';
 
@@ -30,21 +27,29 @@ export function normalizeFeature(feature, layerName) {
 
   const name = isNotam
     ? (a.notamId || `NOTAM-${a.OBJECTID}`)
-    : (a.NOMBRE || a.nombre || a.NAME || a.name || a.identifier || layerName);
+    : (a.NOMBRE || a.nombre || a.NAME || a.name || a.NAME_TXT || a.IDENT_TXT || a.identifier || layerName);
 
   const message = isNotam
     ? (a.DESCRIPTION || a.itemE || '')
-    : (a.message || a.DESCRIPCION || a.descripcion || a.DESCRIPTION || a.description || a.OBSERVACIONES || '');
+    : (a.message || a.DESCRIPCION || a.descripcion || a.DESCRIPTION || a.description || a.OBSERVACIONES || a.REMARKS_TXT || a.REMARKS_TXT_S || a.REMARKS || a.remarks || '');
 
   const warning    = a.warning || a.ADVERTENCIA || a.advertencia || a.WARNING || '';
-  const prohibited = a.PROHIBIDO === 'SI' || a.prohibited === true;
+  const prohibited = a.PROHIBIDO === 'SI' || a.prohibited === true || a.type === 'FORBIDDEN';
+
+  // Structured lower/upper — new service uses numeric fields (a.lower, a.lowerReference, a.uom)
+  // Old service used a.LOWER_VAL (number, feet) — kept as fallback
+  const unitStr = (a.uom || 'M').toUpperCase();
+  const lower = a.lower   != null ? `${a.lower}${unitStr} ${(a.lowerReference || '').toUpperCase()}`.trim()
+              : a.LOWER_VAL != null ? `${a.LOWER_VAL}m AGL` : '';
+  const upper = a.upper   != null ? `${a.upper}${unitStr} ${(a.upperReference || '').toUpperCase()}`.trim()
+              : a.UPPER_VAL != null ? `${a.UPPER_VAL}ft AGL` : '';
 
   let geometry = null;
   if (feature.geometry?.rings?.length > 0) {
     geometry = feature.geometry.rings[0].map(([lon, lat]) => [lat, lon]);
   }
 
-  return { name, layer: layerName, message, warning, prohibited, attributes: a, geometry };
+  return { name, layer: layerName, message, warning, prohibited, lower, upper, attributes: a, geometry };
 }
 
 // ─── Log ──────────────────────────────────────────────────────────────────────
@@ -102,23 +107,24 @@ export function saveEnaireLog(query, results) {
 /** Lanza la query ArcGIS para una capa. Nunca rechaza. */
 export async function queryEnaireLayer(layer, { lat, lon, radiusKm }) {
   try {
-    const { data } = await axios.get(`${ARCGIS_BASE}/${layer.id}/query`, {
-      params: {
-        geometry:     `${lon},${lat}`,
-        geometryType: 'esriGeometryPoint',
-        spatialRel:   'esriSpatialRelIntersects',
-        distance:     radiusKm,
-        units:        'esriSRUnit_Kilometer',
-        outFields:    '*',
-        f:            'json',
-        inSR:         4326,
-      },
-    });
+    const params = {
+      geometry:     `${lon},${lat}`,
+      geometryType: 'esriGeometryPoint',
+      spatialRel:   'esriSpatialRelIntersects',
+      distance:     radiusKm,
+      units:        'esriSRUnit_Kilometer',
+      outFields:    '*',
+      f:            'json',
+      inSR:         4326,
+      outSR:        4326,
+    };
+    if (layer.where) params.where = layer.where;
+    const { data } = await axios.get(`${layer.service}/${layer.id}/query`, { params });
     const features = data.features || [];
-    console.log(`[ENAIRE] ${layer.name} (${layer.id}): ${features.length} features`);
+    console.log(`[ENAIRE] ${layer.name} (${layer.service.split('/').slice(-3).join('/')}/${layer.id}): ${features.length} features`);
     return { layer: layer.name, features };
   } catch (err) {
-    console.warn(`[ENAIRE] Error en capa ${layer.name} (${layer.id}):`, err.message);
+    console.warn(`[ENAIRE] Error en capa ${layer.name}:`, err.message);
     return { layer: layer.name, features: [], fetchError: true };
   }
 }
@@ -140,6 +146,7 @@ export async function queryNotamLayer({ lat, lon, radiusKm }) {
         geometry:     JSON.stringify(envelope),
         geometryType: 'esriGeometryEnvelope',
         spatialRel:   'esriSpatialRelIntersects',
+        where:        'LOWER_VAL_AGL is null or LOWER_VAL_AGL < 120',
         outFields:    '*',
         f:            'json',
         inSR:         4326,
