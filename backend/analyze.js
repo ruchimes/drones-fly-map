@@ -27,6 +27,28 @@ export const FREE_FLIGHT = {
 // ─── Filtro de zonas restrictivas ─────────────────────────────────────────────
 
 /**
+ * Comprueba si una zona está activa según su campo WORKHRRMK_TXT / WORKHR_CODE.
+ * Actualmente detecta zonas solo activas de lunes a viernes (MON/FRI):
+ * si hoy es fin de semana, la zona no está activa.
+ * Retorna true si la zona se considera activa (o si no hay info suficiente).
+ */
+function isZoneActiveNow(zone) {
+  const code = (zone.attributes?.WORKHR_CODE || '').toUpperCase();
+  const rmk  = (zone.attributes?.WORKHRRMK_TXT || '').toUpperCase();
+
+  if (code === 'H24') return true;
+  if (!rmk) return true;
+
+  const day = new Date().getUTCDay(); // 0=Dom, 1=Lun, ..., 5=Vie, 6=Sáb
+  const isWeekend = day === 0 || day === 6;
+
+  // "MON/FRI" o "MON-FRI" → solo activa de lunes a viernes
+  if (/MON[\/-]FRI/.test(rmk) && isWeekend) return false;
+
+  return true;
+}
+
+/**
  * Parsea el nivel inferior de una zona desde el campo `lower` o desde el texto del mensaje.
  * Devuelve metros AMSL, o null si no se puede determinar.
  * Se usa para descartar zonas que empiezan muy por encima de la altitud máxima de un dron.
@@ -107,6 +129,12 @@ export function filterRestrictiveZones(zones) {
     const lowerM = parseLowerLimitM(z);
     if (lowerM !== null && lowerM > MAX_DRONE_AMSL_M) {
       console.log(`[ANALYZE] Zona ignorada por nivel inferior demasiado alto: ${z.name || identifier} (lower ~${Math.round(lowerM)}m AMSL)`);
+      return false;
+    }
+
+    // Zonas fuera de su horario/día de operación → no restrictivas ahora
+    if (!isZoneActiveNow(z)) {
+      console.log(`[ANALYZE] Zona fuera de horario: ${z.name || identifier} (${z.attributes?.WORKHRRMK_TXT})`);
       return false;
     }
 
