@@ -214,6 +214,34 @@ function analyzeNotams(restrictiveZones, allZones, now, reasons) {
     });
   }
 
+  // NOTAMs con otros qcodes que no son R/P/D ni RTCA/RTCE (p.ej. WGLW = ejercicios ala delta)
+  // Están en el área y afectan al espacio aéreo — mostrar como aviso
+  const otherNotams = restrictiveZones.filter(z => {
+    if (z.layer !== 'NOTAMs activos') return false;
+    if (forbiddenNotams.includes(z)) return false;
+    const qcode = z.attributes?.qcode || '';
+    if (NOTAM_DRONE_ZONE_QCODES.test(qcode)) return false;
+    return true;
+  });
+
+  if (otherNotams.length > 0) {
+    otherNotams.sort((a, b) =>
+      parseNotamDate(a.attributes?.itemBstr) - parseNotamDate(b.attributes?.itemBstr),
+    );
+    otherNotams.forEach(z => {
+      const from     = z.attributes?.itemBstr || null;
+      const to       = z.attributes?.itemCstr || null;
+      const range    = from && to ? ` (desde ${from} hasta ${to} UTC)` : '';
+      const f        = parseNotamDate(from);
+      const t        = parseNotamDate(to);
+      const isActive = f <= now && (t === 0 || now <= t);
+      reasons.push(isActive
+        ? `⚠️ NOTAM activo en el área — ${z.name}${range}`
+        : `⚠️ NOTAM próximo en el área — ${z.name}${range}`,
+      );
+    });
+  }
+
   // NOTAMs RTCA/RTCE — zonas segregadas para drones: informativos
   const droneZoneNotams = allZones.filter(z => {
     if (z.layer !== 'NOTAMs activos') return false;

@@ -112,9 +112,9 @@ export const zoneText = zone =>
 /** true si alguno de los patrones coincide con el texto */
 export const matchesAny = (patterns, text) => patterns.some(p => p.test(text));
 
-/** Parsea "DD/MM/YYYY HH:mm:ss" → timestamp ms */
+/** Parsea "DD/MM/YYYY HH:mm:ss" (UTC) → timestamp ms */
 export const parseNotamDate = str => {
   if (!str) return 0;
   const [d, m, y, H, M, S] = str.match(/(\d+)/g);
-  return new Date(`${y}-${m}-${d}T${H}:${M}:${S}`).getTime();
+  return new Date(`${y}-${m}-${d}T${H}:${M}:${S}Z`).getTime();
 };
