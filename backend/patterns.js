@@ -21,10 +21,12 @@ export const COORDINATION_EXCEPTION_PATTERN =
 /**
  * Detecta zonas con altura libre hasta Xm y prohibición por encima.
  * Captura: [1] límite AGL desde ref. aeródromo, [2] cota AMSL del aeródromo (opcional).
- * Ej: "Por debajo de 90m medidos desde el punto de referencia del aeródromo (442m), no es necesario coordinar"
+ * Formatos reconocidos:
+ *   "Por debajo de 90m medidos desde el punto de referencia del aeródromo (442m), no es necesario coordinar"
+ *   "entre el suelo y una altitud de 45m sobre el ARP del aeródromo (609m), no es necesario coordinar"
  */
 export const CONDITIONAL_HEIGHT_PATTERN =
-  /por debajo de\s*(\d{1,4})\s*m[^(]*(?:\((\d{1,5})m\))?[^.]*no es necesario coordinar/iu;
+  /(?:por debajo de|entre el suelo y una altitud de)\s*(\d{1,4})\s*m[^(]*(?:\((\d{1,5})m\))?[^.]*no es necesario coordinar/iu;
 
 /** Vuelo fotográfico / captación de datos restringido */
 export const PHOTO_FLIGHT_PATTERNS = [
